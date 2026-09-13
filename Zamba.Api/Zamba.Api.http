@@ -1,0 +1,6 @@
+@Zamba.Api_HostAddress = http://localhost:5131
+
+GET {{Zamba.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
