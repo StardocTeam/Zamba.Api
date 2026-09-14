@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Local vector store database (generated at runtime)
+Zamba.Api/Data/*.db
+
 # User-specific files
 *.rsuser
 *.suo
