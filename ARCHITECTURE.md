@@ -100,6 +100,27 @@ flowchart TD
     Retrieve -.-> EmbedChoice
 ```
 
+## Recursos locales vs. cloud
+
+| Recurso | Local / Cloud | Aplicación / tecnología usada | Para qué se usa | Posición en el flujo |
+|---|---|---|---|---|
+| `Zamba.Api` (proceso web) | **Local** | ASP.NET Core (Kestrel), corre en `http://localhost:5000` | Host de la API, expone `POST /api/copilot/ask` | Punto de entrada del flujo, recibe la petición del cliente |
+| `FileTextExtractor` | **Local** | Librería .NET embebida en el proceso (extracción de texto de PDF/otros) | Convierte el archivo subido (base64) en texto plano | Primer paso del pipeline, antes del chunking |
+| `TextChunker` | **Local** | Código propio (.NET), sin dependencias externas | Divide el texto extraído en fragmentos (`ChunkSize`/`ChunkOverlap`) | Paso intermedio, entre extracción y embedding |
+| `LocalHashEmbeddingClient` | **Local** | Algoritmo de hashing propio (offline, sin red) | Genera vectores de embedding sin llamar a ningún servicio externo (default, `EmbeddingProvider = Local`) | Genera embeddings de cada chunk y del prompt, antes de guardarlos/compararlos |
+| `GitHubModelsEmbeddingClient` | **Cloud** (código legado, no usado por defecto) | GitHub Models API (`https://models.github.ai/inference`), vía HTTPS con API key | Alternativa hosteada para generar embeddings (`EmbeddingProvider = GitHubModels`) | Mismo punto que el anterior, solo si se cambia la config |
+| `SqliteVectorStore` / `vectorstore.db` | **Local** | SQLite (archivo en `Data/vectorstore.db`) | Cachea los embeddings de los chunks por hash de documento, evita reprocesar archivos ya indexados | Guarda los embeddings tras el chunking, y se consulta en cada pedido para ver si el documento ya fue indexado (cache hit) y para recuperar los chunks más relevantes |
+| `CopilotSdkClientProvider` | **Local** (proceso) que habla con **Cloud** | Copilot SDK (`GitHub.Copilot` NuGet), spawnea un proceso CLI (`CopilotClient`) vía stdio | Mantiene un único proceso/runtime del Copilot CLI compartido durante la vida de la app | Es el puente entre la app y el runtime de Copilot; se invoca justo antes de enviar el prompt |
+| `CopilotSdkChatClient` (`GitHubModelsChatClient.cs`) | **Cloud** (a través del proceso local del SDK) | GitHub Copilot runtime (chat completions vía Copilot SDK) | Envía el prompt (con el contexto de los chunks relevantes como system message) y recibe la respuesta del modelo | Último paso del pipeline, genera la respuesta final antes de devolverla al cliente |
+| `MemoryContextService` | **Local** | Servicio .NET, orquestador | Coordina hashing → extracción → chunking → embedding → guardado/búsqueda en SQLite → armado de contexto → llamada al chat | Orquesta todo el flujo, es el punto central que conecta los recursos locales y cloud |
+| `CopilotController` | **Local** | Controlador ASP.NET Core | Valida el request HTTP entrante y mapea errores a códigos de estado (400/502) | Primer componente que recibe la petición del cliente `zamba-angular` |
+| `zamba-angular` (frontend) | **Local/Externo** (fuera de este API) | Aplicación Angular | Cliente que sube el archivo y el prompt, consume la respuesta | Origen de la petición HTTP hacia `Zamba.Api` |
+
+**Resumen del criterio:**
+- **Local**: se ejecuta dentro del proceso de `Zamba.Api` o en el mismo host, sin salir a internet (extracción de texto, chunking, embeddings locales, SQLite).
+- **Cloud**: implica una llamada de red saliente a un servicio externo (GitHub Copilot runtime para el chat, y opcionalmente GitHub Models para embeddings si se configura `EmbeddingProvider = GitHubModels`).
+- El único componente que **combina** ambos mundos es `CopilotSdkClientProvider`/`CopilotSdkChatClient`: el proceso del SDK corre localmente, pero la inferencia del modelo ocurre en la nube (GitHub Copilot runtime).
+
 ## Key components
 
 | Component | Role |
