@@ -35,48 +35,67 @@ public class MemoryContextService(
         var totalStopwatch = Stopwatch.StartNew();
         var stats = new PromptStats { EmbeddingProvider = _copilotOptions.EmbeddingProvider };
 
-        byte[] fileBytes;
-        try
+        string documentId;
+        string fileName;
+        bool isIndexed;
+
+        if (!string.IsNullOrWhiteSpace(request.FileBase64))
         {
-            fileBytes = Convert.FromBase64String(request.FileBase64);
+            byte[] fileBytes;
+            try
+            {
+                fileBytes = Convert.FromBase64String(request.FileBase64);
+            }
+            catch (FormatException)
+            {
+                throw new ArgumentException("FileBase64 is not a valid base64 string.");
+            }
+
+            if (fileBytes.LongLength > _fileProcessingOptions.MaxFileSizeBytes)
+            {
+                throw new ArgumentException(
+                    $"File exceeds the maximum allowed size of {_fileProcessingOptions.MaxFileSizeBytes} bytes.");
+            }
+
+            documentId = ComputeDocumentId(fileBytes);
+            fileName = request.FileName!;
+            isIndexed = await vectorStore.DocumentExistsAsync(documentId, cancellationToken);
+
+            if (!isIndexed && textExtractor.TryExtractText(fileBytes, fileName, out var text))
+            {
+                var chunks = textChunker.Chunk(text, _vectorStoreOptions.ChunkSize, _vectorStoreOptions.ChunkOverlap);
+                var embeddedChunks = new List<DocumentChunk>(chunks.Count);
+
+                var embeddingStopwatch = Stopwatch.StartNew();
+                for (var i = 0; i < chunks.Count; i++)
+                {
+                    var embedding = await embeddingClient.GetEmbeddingAsync(chunks[i], cancellationToken);
+                    embeddedChunks.Add(new DocumentChunk(i, chunks[i], embedding));
+                }
+                embeddingStopwatch.Stop();
+                stats.EmbeddingDurationMs = embeddingStopwatch.ElapsedMilliseconds;
+                stats.ChunksIndexed = embeddedChunks.Count;
+
+                if (embeddedChunks.Count > 0)
+                {
+                    await vectorStore.SaveChunksAsync(documentId, fileName, embeddedChunks, cancellationToken);
+                    isIndexed = true;
+                }
+            }
         }
-        catch (FormatException)
+        else
         {
-            throw new ArgumentException("FileBase64 is not a valid base64 string.");
+            documentId = request.DocumentId!;
+            isIndexed = await vectorStore.DocumentExistsAsync(documentId, cancellationToken);
+            if (!isIndexed)
+            {
+                throw new ArgumentException($"No document found for DocumentId '{documentId}'. Send FileBase64/FileName to index it first.");
+            }
+
+            fileName = await vectorStore.GetFileNameAsync(documentId, cancellationToken) ?? "unknown";
         }
 
-        if (fileBytes.LongLength > _fileProcessingOptions.MaxFileSizeBytes)
-        {
-            throw new ArgumentException(
-                $"File exceeds the maximum allowed size of {_fileProcessingOptions.MaxFileSizeBytes} bytes.");
-        }
-
-        var documentId = ComputeDocumentId(fileBytes);
-
-        var isIndexed = await vectorStore.DocumentExistsAsync(documentId, cancellationToken);
         stats.DocumentAlreadyIndexed = isIndexed;
-
-        if (!isIndexed && textExtractor.TryExtractText(fileBytes, request.FileName, out var text))
-        {
-            var chunks = textChunker.Chunk(text, _vectorStoreOptions.ChunkSize, _vectorStoreOptions.ChunkOverlap);
-            var embeddedChunks = new List<DocumentChunk>(chunks.Count);
-
-            var embeddingStopwatch = Stopwatch.StartNew();
-            for (var i = 0; i < chunks.Count; i++)
-            {
-                var embedding = await embeddingClient.GetEmbeddingAsync(chunks[i], cancellationToken);
-                embeddedChunks.Add(new DocumentChunk(i, chunks[i], embedding));
-            }
-            embeddingStopwatch.Stop();
-            stats.EmbeddingDurationMs = embeddingStopwatch.ElapsedMilliseconds;
-            stats.ChunksIndexed = embeddedChunks.Count;
-
-            if (embeddedChunks.Count > 0)
-            {
-                await vectorStore.SaveChunksAsync(documentId, request.FileName, embeddedChunks, cancellationToken);
-                isIndexed = true;
-            }
-        }
 
         var retrievalStopwatch = Stopwatch.StartNew();
         var relevantChunks = isIndexed
@@ -85,7 +104,7 @@ public class MemoryContextService(
         retrievalStopwatch.Stop();
         stats.RetrievalDurationMs = retrievalStopwatch.ElapsedMilliseconds;
 
-        var systemContext = BuildSystemContext(request.FileName, relevantChunks);
+        var systemContext = BuildSystemContext(fileName, relevantChunks);
 
         var chatStopwatch = Stopwatch.StartNew();
         var completion = await chatClient.GetChatCompletionAsync(systemContext, request.Prompt, cancellationToken);

@@ -8,6 +8,8 @@ public interface IVectorStore
 {
     Task<bool> DocumentExistsAsync(string documentId, CancellationToken cancellationToken);
 
+    Task<string?> GetFileNameAsync(string documentId, CancellationToken cancellationToken);
+
     Task SaveChunksAsync(string documentId, string fileName, IReadOnlyList<DocumentChunk> chunks, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<DocumentChunk>> FindMostRelevantChunksAsync(
@@ -75,6 +77,19 @@ public class SqliteVectorStore : IVectorStore
 
         var count = (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
         return count > 0;
+    }
+
+    public async Task<string?> GetFileNameAsync(string documentId, CancellationToken cancellationToken)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT FileName FROM Documents WHERE DocumentId = $documentId";
+        command.Parameters.AddWithValue("$documentId", documentId);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result as string;
     }
 
     public async Task SaveChunksAsync(

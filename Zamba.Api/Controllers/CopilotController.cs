@@ -20,11 +20,20 @@ public class CopilotController(IMemoryContextService memoryContextService, ILogg
     public async Task<ActionResult<CopilotPromptResponse>> Ask(
         [FromBody] CopilotPromptRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.FileBase64) ||
-            string.IsNullOrWhiteSpace(request.FileName) ||
-            string.IsNullOrWhiteSpace(request.Prompt))
+        if (string.IsNullOrWhiteSpace(request.Prompt))
         {
-            return BadRequest("FileBase64, FileName and Prompt are all required.");
+            return BadRequest("Prompt is required.");
+        }
+
+        var hasFile = !string.IsNullOrWhiteSpace(request.FileBase64) || !string.IsNullOrWhiteSpace(request.FileName);
+        if (hasFile && (string.IsNullOrWhiteSpace(request.FileBase64) || string.IsNullOrWhiteSpace(request.FileName)))
+        {
+            return BadRequest("FileBase64 and FileName must both be provided together.");
+        }
+
+        if (!hasFile && string.IsNullOrWhiteSpace(request.DocumentId))
+        {
+            return BadRequest("Either FileBase64/FileName or DocumentId must be provided.");
         }
 
         try
