@@ -38,6 +38,7 @@ public class MemoryContextService(
         string documentId;
         string fileName;
         bool isIndexed;
+        byte[]? fileBytesForModel = null;
 
         if (!string.IsNullOrWhiteSpace(request.FileBase64))
         {
@@ -82,6 +83,17 @@ public class MemoryContextService(
                     isIndexed = true;
                 }
             }
+
+            if (!isIndexed)
+            {
+                await vectorStore.SaveFileAsync(documentId, fileName, fileBytes, cancellationToken);
+                isIndexed = true;
+                fileBytesForModel = fileBytes;
+            }
+            else
+            {
+                fileBytesForModel = await vectorStore.GetFileBytesAsync(documentId, cancellationToken);
+            }
         }
         else
         {
@@ -93,6 +105,7 @@ public class MemoryContextService(
             }
 
             fileName = await vectorStore.GetFileNameAsync(documentId, cancellationToken) ?? "unknown";
+            fileBytesForModel = await vectorStore.GetFileBytesAsync(documentId, cancellationToken);
         }
 
         stats.DocumentAlreadyIndexed = isIndexed;
@@ -104,10 +117,16 @@ public class MemoryContextService(
         retrievalStopwatch.Stop();
         stats.RetrievalDurationMs = retrievalStopwatch.ElapsedMilliseconds;
 
-        var systemContext = BuildSystemContext(fileName, relevantChunks);
+        var systemContext = fileBytesForModel is not null
+            ? BuildFileAttachmentContext(fileName)
+            : BuildSystemContext(fileName, relevantChunks);
+
+        // First invocation is when the file is provided in the request (not from DocumentId retrieval).
+        var isFirstInvocation = !string.IsNullOrWhiteSpace(request.FileBase64);
 
         var chatStopwatch = Stopwatch.StartNew();
-        var completion = await chatClient.GetChatCompletionAsync(systemContext, request.Prompt, cancellationToken);
+        var completion = await chatClient.GetChatCompletionAsync(
+            systemContext, request.Prompt, fileBytesForModel, fileName, isFirstInvocation, cancellationToken);
         chatStopwatch.Stop();
         stats.ChatDurationMs = chatStopwatch.ElapsedMilliseconds;
 
@@ -127,6 +146,7 @@ public class MemoryContextService(
         return new CopilotPromptResponse
         {
             Response = completion.Response,
+            SessionId = completion.SessionId,
             DocumentId = documentId,
             ChunksUsed = relevantChunks.Count,
             Stats = stats
@@ -162,6 +182,12 @@ public class MemoryContextService(
         }
 
         return builder.ToString();
+    }
+
+    private static string BuildFileAttachmentContext(string fileName)
+    {
+        return $"The attached file '{fileName}' is the source document. Inspect its pages and answer using the file contents. " +
+               "Return exactly the format requested by the user and do not say that the document is unavailable.";
     }
 
     private static string ComputeDocumentId(byte[] fileBytes)

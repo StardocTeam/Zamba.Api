@@ -10,6 +10,10 @@ public interface IVectorStore
 
     Task<string?> GetFileNameAsync(string documentId, CancellationToken cancellationToken);
 
+    Task<byte[]?> GetFileBytesAsync(string documentId, CancellationToken cancellationToken);
+
+    Task SaveFileAsync(string documentId, string fileName, byte[] fileBytes, CancellationToken cancellationToken);
+
     Task SaveChunksAsync(string documentId, string fileName, IReadOnlyList<DocumentChunk> chunks, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<DocumentChunk>> FindMostRelevantChunksAsync(
@@ -61,6 +65,12 @@ public class SqliteVectorStore : IVectorStore
                 FOREIGN KEY (DocumentId) REFERENCES Documents (DocumentId)
             );
 
+            CREATE TABLE IF NOT EXISTS DocumentFiles (
+                DocumentId TEXT PRIMARY KEY,
+                FileData BLOB NOT NULL,
+                FOREIGN KEY (DocumentId) REFERENCES Documents (DocumentId)
+            );
+
             CREATE INDEX IF NOT EXISTS IX_Chunks_DocumentId ON Chunks (DocumentId);
             """;
         command.ExecuteNonQuery();
@@ -90,6 +100,51 @@ public class SqliteVectorStore : IVectorStore
 
         var result = await command.ExecuteScalarAsync(cancellationToken);
         return result as string;
+    }
+
+    public async Task<byte[]?> GetFileBytesAsync(string documentId, CancellationToken cancellationToken)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT FileData FROM DocumentFiles WHERE DocumentId = $documentId";
+        command.Parameters.AddWithValue("$documentId", documentId);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is byte[] bytes ? bytes : null;
+    }
+
+    public async Task SaveFileAsync(
+        string documentId, string fileName, byte[] fileBytes, CancellationToken cancellationToken)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+
+        using (var documentCommand = connection.CreateCommand())
+        {
+            documentCommand.Transaction = transaction;
+            documentCommand.CommandText =
+                "INSERT OR REPLACE INTO Documents (DocumentId, FileName, CreatedAtUtc) " +
+                "VALUES ($documentId, $fileName, $createdAtUtc)";
+            documentCommand.Parameters.AddWithValue("$documentId", documentId);
+            documentCommand.Parameters.AddWithValue("$fileName", fileName);
+            documentCommand.Parameters.AddWithValue("$createdAtUtc", DateTime.UtcNow.ToString("O"));
+            await documentCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        using (var fileCommand = connection.CreateCommand())
+        {
+            fileCommand.Transaction = transaction;
+            fileCommand.CommandText =
+                "INSERT OR REPLACE INTO DocumentFiles (DocumentId, FileData) VALUES ($documentId, $fileData)";
+            fileCommand.Parameters.AddWithValue("$documentId", documentId);
+            fileCommand.Parameters.AddWithValue("$fileData", fileBytes);
+            await fileCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task SaveChunksAsync(

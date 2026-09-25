@@ -1,3 +1,7 @@
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Zamba.Api.Data;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -12,6 +16,20 @@ builder.Services.AddOptions<Zamba.Api.Configuration.VectorStoreOptions>()
     .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.VectorStoreOptions.SectionName));
 builder.Services.AddOptions<Zamba.Api.Configuration.FileProcessingOptions>()
     .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.FileProcessingOptions.SectionName));
+
+// Add Entity Framework Core with SQL Server
+var connectionString = builder.Configuration.GetConnectionString("ZambaConnectionDEV") 
+    ?? throw new InvalidOperationException("Connection string 'ZambaConnectionDEV' not found.");
+builder.Services.AddDbContext<Zamba.Api.Data.ZambaDbContext>(options =>
+    options.UseSqlServer(connectionString)
+);
+
+// Add FluentValidation
+builder.Services.AddScoped<IValidator<Zamba.Api.DTOs.CreateOrUpdateScheduleEventDto>, Zamba.Api.Validation.CreateOrUpdateScheduleEventValidator>();
+builder.Services.AddScoped<IValidator<Zamba.Api.DTOs.ScheduleConfigDto>, Zamba.Api.Validation.ScheduleConfigValidator>();
+
+// Add Schedule services
+builder.Services.AddScoped<Zamba.Api.Services.IScheduleMapper, Zamba.Api.Services.ScheduleMapper>();
 
 builder.Services.AddSingleton<Zamba.Api.Services.IFileTextExtractor, Zamba.Api.Services.FileTextExtractor>();
 builder.Services.AddSingleton<Zamba.Api.Services.ITextChunker, Zamba.Api.Services.TextChunker>();
@@ -39,7 +57,7 @@ else
 
 // Chat completions go through the GitHub Copilot SDK (agentic CLI runtime) rather than a raw HTTP call.
 builder.Services.AddSingleton<Zamba.Api.Services.ICopilotSdkClientProvider, Zamba.Api.Services.CopilotSdkClientProvider>();
-builder.Services.AddScoped<Zamba.Api.Services.ICopilotChatClient, Zamba.Api.Services.CopilotSdkChatClient>();
+builder.Services.AddSingleton<Zamba.Api.Services.ICopilotChatClient, Zamba.Api.Services.CopilotSdkChatClient>();
 
 // Allow the zamba-angular dev server to consume this API
 const string ZambaAngularCorsPolicy = "ZambaAngularCorsPolicy";

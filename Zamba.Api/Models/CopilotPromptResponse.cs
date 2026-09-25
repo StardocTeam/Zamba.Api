@@ -7,6 +7,9 @@ public class CopilotPromptResponse
 {
     public string Response { get; set; } = string.Empty;
 
+    /// <summary>Copilot SDK session identifier for tracking conversation persistence.</summary>
+    public string SessionId { get; set; } = string.Empty;
+
     /// <summary>Hash-based id of the file, used to cache/reuse embeddings across requests.</summary>
     public string DocumentId { get; set; } = string.Empty;
 

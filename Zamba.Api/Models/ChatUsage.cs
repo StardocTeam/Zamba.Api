@@ -13,5 +13,5 @@ public class ChatUsage
     public long DurationMs { get; set; }
 }
 
-/// <summary>Wraps a chat completion's text together with the usage metrics for that call.</summary>
-public record ChatCompletionResult(string Response, ChatUsage? Usage);
+/// <summary>Wraps a chat completion's text together with the usage metrics and session ID for that call.</summary>
+public record ChatCompletionResult(string Response, ChatUsage? Usage, string SessionId);

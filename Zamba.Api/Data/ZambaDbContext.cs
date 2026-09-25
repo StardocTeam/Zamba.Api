@@ -1,0 +1,141 @@
+using Microsoft.EntityFrameworkCore;
+
+namespace Zamba.Api.Data;
+
+/// <summary>
+/// Entity Framework Core database context for Zamba API.
+/// Manages all database entities and their relationships.
+/// 
+/// NOTE: This context is configured for SQL Server by default.
+/// To switch to Oracle, see README for configuration changes.
+/// </summary>
+public class ZambaDbContext : DbContext
+{
+    /// <summary>
+    /// Initializes a new instance of the ZambaDbContext with options.
+    /// </summary>
+    public ZambaDbContext(DbContextOptions<ZambaDbContext> options)
+        : base(options)
+    {
+    }
+
+    /// <summary>
+    /// DbSet for Schedule Events.
+    /// </summary>
+    public DbSet<Models.ScheduleEvent> ScheduleEvents { get; set; }
+
+    /// <summary>
+    /// DbSet for Schedule Configurations.
+    /// </summary>
+    public DbSet<Models.ScheduleConfig> ScheduleConfigs { get; set; }
+
+    /// <summary>
+    /// DbSet for Schedule Execution Logs.
+    /// </summary>
+    public DbSet<Models.ScheduleExecutionLog> ScheduleExecutionLogs { get; set; }
+
+    /// <summary>
+    /// Configures the model when it is first created.
+    /// </summary>
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Configure ScheduleEvent
+        modelBuilder.Entity<Models.ScheduleEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.Property(e => e.RuleId)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.Property(e => e.Description)
+                .HasMaxLength(1000);
+
+            entity.Property(e => e.EndpointOverride)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.CreatedBy)
+                .HasMaxLength(255);
+
+            entity.Property(e => e.UpdatedBy)
+                .HasMaxLength(255);
+
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("GETUTCDATE()");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("GETUTCDATE()");
+
+            // Indexes for common queries
+            entity.HasIndex(e => e.RuleId);
+            entity.HasIndex(e => e.IsActive);
+            entity.HasIndex(e => e.CreatedAt);
+
+            // One-to-many relationship with ScheduleExecutionLog
+            entity.HasMany(e => e.ExecutionLogs)
+                .WithOne(l => l.ScheduleEvent)
+                .HasForeignKey(l => l.ScheduleEventId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One-to-one relationship with ScheduleConfig
+            entity.HasOne(e => e.ScheduleConfig)
+                .WithOne(c => c.ScheduleEvent)
+                .HasForeignKey<Models.ScheduleConfig>(c => c.ScheduleEventId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure ScheduleConfig
+        modelBuilder.Entity<Models.ScheduleConfig>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.CronExpression)
+                .HasMaxLength(255);
+
+            entity.Property(e => e.DaysOfWeek)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.TimeZone)
+                .HasMaxLength(100)
+                .HasDefaultValue("Argentina Standard Time");
+
+            // Convert TimeSpan to tinyint for storage (hours) or use time data type
+            // SQL Server supports time(7) for TimeSpan without loss
+            entity.Property(e => e.TimeOfDay)
+                .HasColumnType("time");
+        });
+
+        // Configure ScheduleExecutionLog
+        modelBuilder.Entity<Models.ScheduleExecutionLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ResponseBody)
+                .HasMaxLength(4000); // Truncate to 4000 chars to avoid excessive storage
+
+            entity.Property(e => e.ErrorMessage)
+                .HasMaxLength(2000);
+
+            entity.Property(e => e.ScheduledAt)
+                .HasPrecision(6); // Millisecond precision
+
+            entity.Property(e => e.StartedAt)
+                .HasPrecision(6);
+
+            entity.Property(e => e.FinishedAt)
+                .HasPrecision(6);
+
+            // Indexes for common queries
+            entity.HasIndex(e => e.ScheduleEventId);
+            entity.HasIndex(e => e.ScheduledAt);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => new { e.ScheduleEventId, e.ScheduledAt });
+        });
+    }
+}

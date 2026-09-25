@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": ".NET Core Launch (web)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/Zamba.Api/bin/Debug/net9.0/Zamba.Api.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/Zamba.Api",
+            "stopAtEntry": false,
+            "serverReadyAction": {
+                "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+                "uriFormat": "{}",
+                "action": "openExternally"
+            }
+        },
+        {
+            "name": ".NET Core Attach",
+            "type": "coreclr",
+            "request": "attach",
+            "processId": "${command:pickProcess}"
+        }
+    ]
+}
