@@ -6,13 +6,13 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/Zamba.Api/bin/Debug/net9.0/Zamba.Api.dll",
+            "program": "${workspaceFolder}/Zamba.Api/bin/Debug/net10.0/Zamba.Api.dll",
             "args": [],
             "cwd": "${workspaceFolder}/Zamba.Api",
             "stopAtEntry": false,
             "serverReadyAction": {
                 "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
-                "uriFormat": "{}",
+                "uriFormat": "",
                 "action": "openExternally"
             }
         },
