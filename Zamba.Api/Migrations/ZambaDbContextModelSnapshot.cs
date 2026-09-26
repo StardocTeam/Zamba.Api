@@ -17,10 +17,189 @@ namespace Zamba.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.0")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("Zamba.Api.Models.CopilotFeedback", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("VoterId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Rating", "CreatedAtUtc");
+
+                    b.HasIndex("RunId", "VoterId")
+                        .IsUnique();
+
+                    b.ToTable("CopilotFeedback");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.CopilotRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long?>("CacheReadTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("CacheWriteTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ChatDurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ChatModel")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("ChunksIndexed")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ChunksUsed")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("DocumentAlreadyIndexed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("DocumentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int?>("DocumentTypeCode")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("EmbeddingDurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("EmbeddingProvider")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<double?>("EstimatedCost")
+                        .HasColumnType("float");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<long?>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Response")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<long?>("RetrievalDurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<long?>("TotalDurationMs")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedAtUtc");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("DocumentTypeCode", "StartedAtUtc");
+
+                    b.ToTable("CopilotRuns");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.CopilotRunStep", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<long?>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId", "StartedAtUtc");
+
+                    b.ToTable("CopilotRunSteps");
+                });
 
             modelBuilder.Entity("Zamba.Api.Models.ScheduleConfig", b =>
                 {
@@ -191,6 +370,28 @@ namespace Zamba.Api.Migrations
                     b.ToTable("ScheduleExecutionLogs");
                 });
 
+            modelBuilder.Entity("Zamba.Api.Models.CopilotFeedback", b =>
+                {
+                    b.HasOne("Zamba.Api.Models.CopilotRun", "Run")
+                        .WithMany("Feedback")
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Run");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.CopilotRunStep", b =>
+                {
+                    b.HasOne("Zamba.Api.Models.CopilotRun", "Run")
+                        .WithMany("Steps")
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Run");
+                });
+
             modelBuilder.Entity("Zamba.Api.Models.ScheduleConfig", b =>
                 {
                     b.HasOne("Zamba.Api.Models.ScheduleEvent", "ScheduleEvent")
@@ -211,6 +412,13 @@ namespace Zamba.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("ScheduleEvent");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.CopilotRun", b =>
+                {
+                    b.Navigation("Feedback");
+
+                    b.Navigation("Steps");
                 });
 
             modelBuilder.Entity("Zamba.Api.Models.ScheduleEvent", b =>

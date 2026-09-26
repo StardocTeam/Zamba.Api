@@ -34,6 +34,12 @@ public class ZambaDbContext : DbContext
     /// </summary>
     public DbSet<Models.ScheduleExecutionLog> ScheduleExecutionLogs { get; set; }
 
+    public DbSet<Models.CopilotRun> CopilotRuns { get; set; }
+
+    public DbSet<Models.CopilotRunStep> CopilotRunSteps { get; set; }
+
+    public DbSet<Models.CopilotFeedback> CopilotFeedback { get; set; }
+
     /// <summary>
     /// Configures the model when it is first created.
     /// </summary>
@@ -136,6 +142,50 @@ public class ZambaDbContext : DbContext
             entity.HasIndex(e => e.ScheduledAt);
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => new { e.ScheduleEventId, e.ScheduledAt });
+        });
+
+        modelBuilder.Entity<Models.CopilotRun>(entity =>
+        {
+            entity.HasKey(run => run.Id);
+            entity.Property(run => run.Prompt).IsRequired();
+            entity.Property(run => run.Status).HasMaxLength(32).IsRequired();
+            entity.Property(run => run.FileName).HasMaxLength(512);
+            entity.Property(run => run.DocumentId).HasMaxLength(64);
+            entity.Property(run => run.EmbeddingProvider).HasMaxLength(64);
+            entity.Property(run => run.ChatModel).HasMaxLength(128);
+            entity.Property(run => run.SessionId).HasMaxLength(128);
+            entity.Property(run => run.ErrorMessage).HasMaxLength(4000);
+            entity.Property(run => run.Response).IsRequired(false);
+            entity.HasIndex(run => run.StartedAtUtc);
+            entity.HasIndex(run => run.Status);
+            entity.HasIndex(run => new { run.DocumentTypeCode, run.StartedAtUtc });
+        });
+
+        modelBuilder.Entity<Models.CopilotRunStep>(entity =>
+        {
+            entity.HasKey(step => step.Id);
+            entity.Property(step => step.Name).HasMaxLength(64).IsRequired();
+            entity.Property(step => step.Status).HasMaxLength(32).IsRequired();
+            entity.Property(step => step.Detail).HasMaxLength(4000);
+            entity.Property(step => step.ErrorMessage).HasMaxLength(4000);
+            entity.HasIndex(step => new { step.RunId, step.StartedAtUtc });
+            entity.HasOne(step => step.Run)
+                .WithMany(run => run.Steps)
+                .HasForeignKey(step => step.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Models.CopilotFeedback>(entity =>
+        {
+            entity.HasKey(feedback => feedback.Id);
+            entity.Property(feedback => feedback.VoterId).HasMaxLength(128).IsRequired();
+            entity.Property(feedback => feedback.Comment).HasMaxLength(2000);
+            entity.HasIndex(feedback => new { feedback.RunId, feedback.VoterId }).IsUnique();
+            entity.HasIndex(feedback => new { feedback.Rating, feedback.CreatedAtUtc });
+            entity.HasOne(feedback => feedback.Run)
+                .WithMany(run => run.Feedback)
+                .HasForeignKey(feedback => feedback.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

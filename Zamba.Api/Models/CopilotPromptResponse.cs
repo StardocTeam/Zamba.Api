@@ -5,6 +5,8 @@ namespace Zamba.Api.Models;
 /// </summary>
 public class CopilotPromptResponse
 {
+    public Guid RunId { get; set; }
+
     public string Response { get; set; } = string.Empty;
 
     /// <summary>Copilot SDK session identifier for tracking conversation persistence.</summary>

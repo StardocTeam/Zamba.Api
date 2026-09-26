@@ -23,6 +23,7 @@ public class MemoryContextService(
     IVectorStore vectorStore,
     ICopilotChatClient chatClient,
     IDocumentSkillProvider documentSkillProvider,
+    ICopilotTelemetryService telemetry,
     IOptions<VectorStoreOptions> vectorStoreOptions,
     IOptions<FileProcessingOptions> fileProcessingOptions,
     IOptions<GitHubCopilotOptions> copilotOptions) : IMemoryContextService
@@ -35,119 +36,237 @@ public class MemoryContextService(
     {
         var totalStopwatch = Stopwatch.StartNew();
         var stats = new PromptStats { EmbeddingProvider = _copilotOptions.EmbeddingProvider };
+        var run = await telemetry.StartRunAsync(request, cancellationToken);
 
-        string documentId;
-        string fileName;
-        bool isIndexed;
-
-        if (!string.IsNullOrWhiteSpace(request.FileBase64))
+        try
         {
-            byte[] fileBytes;
+            string documentId;
+            string fileName;
+            bool isIndexed;
+
+            if (!string.IsNullOrWhiteSpace(request.FileBase64))
+            {
+                var fileBytes = await TrackStepAsync(run.Id, "document_decode", () => Task.FromResult(DecodeFile(request.FileBase64)), cancellationToken);
+                await TrackStepAsync(
+                    run.Id,
+                    "file_size_validation",
+                    () => Task.FromResult(ValidateFileSize(fileBytes)),
+                    cancellationToken,
+                    _ => $"File bytes: {fileBytes.LongLength}");
+
+                documentId = ComputeDocumentId(fileBytes);
+                fileName = request.FileName!;
+                isIndexed = await TrackStepAsync(
+                    run.Id,
+                    "document_cache_check",
+                    async () => await vectorStore.DocumentExistsAsync(documentId, cancellationToken)
+                        && await vectorStore.HasChunksAsync(documentId, cancellationToken),
+                    cancellationToken);
+                stats.DocumentAlreadyIndexed = isIndexed;
+
+                if (!isIndexed)
+                {
+                    var text = await TrackStepAsync(
+                        run.Id,
+                        "text_extraction_ocr",
+                        () => textExtractor.ExtractTextAsync(fileBytes, fileName, cancellationToken),
+                        cancellationToken,
+                        extracted => extracted is null ? "No text extracted" : $"Characters extracted: {extracted.Length}");
+                    if (text is not null)
+                    {
+                        var chunks = await TrackStepAsync(
+                            run.Id,
+                            "chunking",
+                            () => Task.FromResult(textChunker.Chunk(text, _vectorStoreOptions.ChunkSize, _vectorStoreOptions.ChunkOverlap)),
+                            cancellationToken,
+                            result => $"Chunks created: {result.Count}");
+                        var embeddingStopwatch = Stopwatch.StartNew();
+                        var embeddedChunks = await TrackStepAsync(
+                            run.Id,
+                            "chunk_embedding",
+                            async () =>
+                            {
+                                var result = new List<DocumentChunk>(chunks.Count);
+                                for (var i = 0; i < chunks.Count; i++)
+                                {
+                                    var embedding = await embeddingClient.GetEmbeddingAsync(chunks[i], cancellationToken);
+                                    result.Add(new DocumentChunk(i, chunks[i], embedding));
+                                }
+
+                                return result;
+                            },
+                            cancellationToken,
+                            result => $"Chunks embedded: {result.Count}");
+                        embeddingStopwatch.Stop();
+                        stats.EmbeddingDurationMs = embeddingStopwatch.ElapsedMilliseconds;
+                        stats.ChunksIndexed = embeddedChunks.Count;
+
+                        if (embeddedChunks.Count > 0)
+                        {
+                            await TrackStepAsync(
+                                run.Id,
+                                "index_persist",
+                                async () =>
+                                {
+                                    await vectorStore.SaveChunksAsync(documentId, fileName, embeddedChunks, cancellationToken);
+                                    return true;
+                                },
+                                cancellationToken,
+                                _ => $"Chunks saved: {embeddedChunks.Count}");
+                            isIndexed = true;
+                        }
+                    }
+                }
+
+                if (!isIndexed)
+                {
+                    throw new ArgumentException("No text could be extracted from the document. OCR processing is required for this file.");
+                }
+            }
+            else
+            {
+                documentId = request.DocumentId!;
+                isIndexed = await TrackStepAsync(
+                    run.Id,
+                    "document_cache_check",
+                    () => vectorStore.DocumentExistsAsync(documentId, cancellationToken),
+                    cancellationToken);
+                if (!isIndexed)
+                {
+                    throw new ArgumentException($"No document found for DocumentId '{documentId}'. Send FileBase64/FileName to index it first.");
+                }
+                stats.DocumentAlreadyIndexed = true;
+
+                fileName = await TrackStepAsync(
+                    run.Id,
+                    "document_metadata",
+                    async () => await vectorStore.GetFileNameAsync(documentId, cancellationToken) ?? "unknown",
+                    cancellationToken);
+                isIndexed = await TrackStepAsync(
+                    run.Id,
+                    "document_chunks_check",
+                    () => vectorStore.HasChunksAsync(documentId, cancellationToken),
+                    cancellationToken);
+                if (!isIndexed)
+                {
+                    throw new ArgumentException($"Document '{documentId}' has no indexed text. Re-upload it after enabling text extraction or OCR.");
+                }
+            }
+
+            var retrievalStopwatch = Stopwatch.StartNew();
+            var relevantChunks = await TrackStepAsync(
+                run.Id,
+                "retrieval_rerank",
+                () => RetrieveRelevantChunksAsync(documentId, request.Prompt, cancellationToken),
+                cancellationToken,
+                result => $"Chunks selected: {result.Count}");
+            retrievalStopwatch.Stop();
+            stats.RetrievalDurationMs = retrievalStopwatch.ElapsedMilliseconds;
+
+            var promptWithContext = await TrackStepAsync(
+                run.Id,
+                "prompt_build",
+                () => Task.FromResult(BuildPromptWithContext(
+                    fileName,
+                    relevantChunks,
+                    documentSkillProvider.GetInstructions(request.DocumentTypeCode),
+                    request.Prompt)),
+                cancellationToken,
+                result => $"Prompt characters: {result.Length}");
+
+            var chatStopwatch = Stopwatch.StartNew();
+            var completion = await TrackStepAsync(
+                run.Id,
+                "copilot_completion",
+                () => chatClient.GetChatCompletionAsync(promptWithContext, cancellationToken),
+                cancellationToken,
+                result => $"Response characters: {result.Response.Length}");
+            chatStopwatch.Stop();
+            stats.ChatDurationMs = chatStopwatch.ElapsedMilliseconds;
+
+            if (completion.Usage is { } usage)
+            {
+                stats.ChatModel = usage.Model;
+                stats.InputTokens = usage.InputTokens;
+                stats.OutputTokens = usage.OutputTokens;
+                stats.CacheReadTokens = usage.CacheReadTokens;
+                stats.CacheWriteTokens = usage.CacheWriteTokens;
+                stats.EstimatedCost = usage.Cost;
+            }
+
+            totalStopwatch.Stop();
+            stats.TotalDurationMs = totalStopwatch.ElapsedMilliseconds;
+
+            var response = new CopilotPromptResponse
+            {
+                RunId = run.Id,
+                Response = completion.Response,
+                SessionId = completion.SessionId,
+                DocumentId = documentId,
+                ChunksUsed = relevantChunks.Count,
+                Stats = stats
+            };
+            await telemetry.CompleteRunAsync(run, response, cancellationToken);
+            return response;
+        }
+        catch (Exception ex)
+        {
+            totalStopwatch.Stop();
             try
             {
-                fileBytes = Convert.FromBase64String(request.FileBase64);
+                await telemetry.FailRunAsync(run, ex, totalStopwatch.ElapsedMilliseconds, CancellationToken.None);
             }
-            catch (FormatException)
+            catch
             {
-                throw new ArgumentException("FileBase64 is not a valid base64 string.");
+                // Preserve the original pipeline failure if telemetry persistence is unavailable.
             }
 
-            if (fileBytes.LongLength > _fileProcessingOptions.MaxFileSizeBytes)
-            {
-                throw new ArgumentException(
-                    $"File exceeds the maximum allowed size of {_fileProcessingOptions.MaxFileSizeBytes} bytes.");
-            }
-
-            documentId = ComputeDocumentId(fileBytes);
-            fileName = request.FileName!;
-            isIndexed = await vectorStore.DocumentExistsAsync(documentId, cancellationToken)
-                && await vectorStore.HasChunksAsync(documentId, cancellationToken);
-
-            if (!isIndexed && await textExtractor.ExtractTextAsync(fileBytes, fileName, cancellationToken) is { } text)
-            {
-                var chunks = textChunker.Chunk(text, _vectorStoreOptions.ChunkSize, _vectorStoreOptions.ChunkOverlap);
-                var embeddedChunks = new List<DocumentChunk>(chunks.Count);
-
-                var embeddingStopwatch = Stopwatch.StartNew();
-                for (var i = 0; i < chunks.Count; i++)
-                {
-                    var embedding = await embeddingClient.GetEmbeddingAsync(chunks[i], cancellationToken);
-                    embeddedChunks.Add(new DocumentChunk(i, chunks[i], embedding));
-                }
-                embeddingStopwatch.Stop();
-                stats.EmbeddingDurationMs = embeddingStopwatch.ElapsedMilliseconds;
-                stats.ChunksIndexed = embeddedChunks.Count;
-
-                if (embeddedChunks.Count > 0)
-                {
-                    await vectorStore.SaveChunksAsync(documentId, fileName, embeddedChunks, cancellationToken);
-                    isIndexed = true;
-                }
-            }
-
-            if (!isIndexed)
-            {
-                throw new ArgumentException("No text could be extracted from the document. OCR processing is required for this file.");
-            }
+            throw;
         }
-        else
-        {
-            documentId = request.DocumentId!;
-            isIndexed = await vectorStore.DocumentExistsAsync(documentId, cancellationToken);
-            if (!isIndexed)
-            {
-                throw new ArgumentException($"No document found for DocumentId '{documentId}'. Send FileBase64/FileName to index it first.");
-            }
+    }
 
-            fileName = await vectorStore.GetFileNameAsync(documentId, cancellationToken) ?? "unknown";
-            isIndexed = await vectorStore.HasChunksAsync(documentId, cancellationToken);
-            if (!isIndexed)
-            {
-                throw new ArgumentException($"Document '{documentId}' has no indexed text. Re-upload it after enabling text extraction or OCR.");
-            }
+    private async Task<T> TrackStepAsync<T>(
+        Guid runId,
+        string name,
+        Func<Task<T>> action,
+        CancellationToken cancellationToken,
+        Func<T, string?>? detailFactory = null)
+    {
+        var step = await telemetry.StartStepAsync(runId, name, cancellationToken);
+        try
+        {
+            var result = await action();
+            await telemetry.CompleteStepAsync(step, detailFactory?.Invoke(result), cancellationToken);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            await telemetry.FailStepAsync(step, ex, CancellationToken.None);
+            throw;
+        }
+    }
+
+    private static byte[] DecodeFile(string fileBase64)
+    {
+        try
+        {
+            return Convert.FromBase64String(fileBase64);
+        }
+        catch (FormatException)
+        {
+            throw new ArgumentException("FileBase64 is not a valid base64 string.");
+        }
+    }
+
+    private bool ValidateFileSize(byte[] fileBytes)
+    {
+        if (fileBytes.LongLength > _fileProcessingOptions.MaxFileSizeBytes)
+        {
+            throw new ArgumentException(
+                $"File exceeds the maximum allowed size of {_fileProcessingOptions.MaxFileSizeBytes} bytes.");
         }
 
-        stats.DocumentAlreadyIndexed = isIndexed;
-
-        var retrievalStopwatch = Stopwatch.StartNew();
-        var relevantChunks = isIndexed
-            ? await RetrieveRelevantChunksAsync(documentId, request.Prompt, cancellationToken)
-            : [];
-        retrievalStopwatch.Stop();
-        stats.RetrievalDurationMs = retrievalStopwatch.ElapsedMilliseconds;
-
-        var promptWithContext = BuildPromptWithContext(
-            fileName,
-            relevantChunks,
-            documentSkillProvider.GetInstructions(request.DocumentTypeCode),
-            request.Prompt);
-
-        var chatStopwatch = Stopwatch.StartNew();
-        var completion = await chatClient.GetChatCompletionAsync(promptWithContext, cancellationToken);
-        chatStopwatch.Stop();
-        stats.ChatDurationMs = chatStopwatch.ElapsedMilliseconds;
-
-        if (completion.Usage is { } usage)
-        {
-            stats.ChatModel = usage.Model;
-            stats.InputTokens = usage.InputTokens;
-            stats.OutputTokens = usage.OutputTokens;
-            stats.CacheReadTokens = usage.CacheReadTokens;
-            stats.CacheWriteTokens = usage.CacheWriteTokens;
-            stats.EstimatedCost = usage.Cost;
-        }
-
-        totalStopwatch.Stop();
-        stats.TotalDurationMs = totalStopwatch.ElapsedMilliseconds;
-
-        return new CopilotPromptResponse
-        {
-            Response = completion.Response,
-            SessionId = completion.SessionId,
-            DocumentId = documentId,
-            ChunksUsed = relevantChunks.Count,
-            Stats = stats
-        };
+        return true;
     }
 
     private async Task<IReadOnlyList<DocumentChunk>> RetrieveRelevantChunksAsync(

@@ -6,7 +6,9 @@ namespace Zamba.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class CopilotController(IMemoryContextService memoryContextService, ILogger<CopilotController> logger) : ControllerBase
+public class CopilotController(
+    IMemoryContextService memoryContextService,
+    ILogger<CopilotController> logger) : ControllerBase
 {
     /// <summary>
     /// Receives a base64-encoded file and a prompt, builds a memory context from the file
@@ -56,4 +58,5 @@ public class CopilotController(IMemoryContextService memoryContextService, ILogg
             return StatusCode(StatusCodes.Status502BadGateway, "Failed to reach the GitHub Copilot API.");
         }
     }
+
 }
