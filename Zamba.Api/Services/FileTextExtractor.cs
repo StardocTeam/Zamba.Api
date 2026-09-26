@@ -5,35 +5,36 @@ namespace Zamba.Api.Services;
 
 public interface IFileTextExtractor
 {
-    /// <summary>Attempts to extract text from the file bytes. Returns false for unsupported/empty binary files.</summary>
-    bool TryExtractText(byte[] fileBytes, string fileName, out string text);
+    Task<string?> ExtractTextAsync(byte[] fileBytes, string fileName, CancellationToken cancellationToken);
 }
 
-public class FileTextExtractor : IFileTextExtractor
+public sealed class FileTextExtractor(IPdfOcr pdfOcr) : IFileTextExtractor
 {
-    public bool TryExtractText(byte[] fileBytes, string fileName, out string text)
+    public async Task<string?> ExtractTextAsync(byte[] fileBytes, string fileName, CancellationToken cancellationToken)
     {
-        text = string.Empty;
         if (fileBytes.Length == 0)
         {
-            return false;
+            return null;
         }
 
         if (IsPdf(fileBytes, fileName))
         {
-            return TryExtractPdfText(fileBytes, out text);
+            var text = TryExtractPdfText(fileBytes);
+            return string.IsNullOrWhiteSpace(text)
+                ? await pdfOcr.ExtractTextAsync(fileBytes, cancellationToken)
+                : text;
         }
 
         try
         {
             // Strict UTF-8 decoding: throws if the content is not valid text (e.g. images, zips).
             var strictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-            text = strictUtf8.GetString(fileBytes).Trim();
-            return text.Length > 0;
+            var text = strictUtf8.GetString(fileBytes).Trim();
+            return text.Length > 0 ? text : null;
         }
         catch (DecoderFallbackException)
         {
-            return false;
+            return null;
         }
     }
 
@@ -43,7 +44,7 @@ public class FileTextExtractor : IFileTextExtractor
                (fileBytes.Length >= 4 && fileBytes[0] == '%' && fileBytes[1] == 'P' && fileBytes[2] == 'D' && fileBytes[3] == 'F');
     }
 
-    private static bool TryExtractPdfText(byte[] fileBytes, out string text)
+    private static string? TryExtractPdfText(byte[] fileBytes)
     {
         try
         {
@@ -56,13 +57,12 @@ public class FileTextExtractor : IFileTextExtractor
                 builder.AppendLine(page.Text);
             }
 
-            text = builder.ToString().Trim();
-            return text.Length > 0;
+            var text = builder.ToString().Trim();
+            return text.Length > 0 ? text : null;
         }
         catch (Exception)
         {
-            text = string.Empty;
-            return false;
+            return null;
         }
     }
 }

@@ -16,6 +16,8 @@ public class CopilotPromptRequest
     /// <summary>Id of a previously indexed document, as returned in CopilotPromptResponse.DocumentId.</summary>
     public string? DocumentId { get; set; }
 
+    public int? DocumentTypeCode { get; set; }
+
     [Required]
     public string Prompt { get; set; } = string.Empty;
 }

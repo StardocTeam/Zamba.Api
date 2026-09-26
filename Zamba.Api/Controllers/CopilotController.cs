@@ -45,6 +45,11 @@ public class CopilotController(IMemoryContextService memoryContextService, ILogg
         {
             return BadRequest(ex.Message);
         }
+        catch (PdfOcrException ex)
+        {
+            logger.LogError(ex, "Local OCR failed while processing the uploaded PDF.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, ex.Message);
+        }
         catch (HttpRequestException ex)
         {
             logger.LogError(ex, "Failed to reach the GitHub Copilot API.");

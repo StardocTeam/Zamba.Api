@@ -8,51 +8,26 @@ namespace Zamba.Api.Services;
 
 public interface ICopilotChatClient
 {
-    Task<ChatCompletionResult> GetChatCompletionAsync(
-        string systemContext, string userPrompt, byte[]? fileBytes, string? fileName, bool isFirstInvocation, CancellationToken cancellationToken);
+    Task<ChatCompletionResult> GetChatCompletionAsync(string prompt, CancellationToken cancellationToken);
 }
 
 /// <summary>Runs prompts through the GitHub Copilot SDK (agentic CLI runtime) instead of a raw REST call.</summary>
 public class CopilotSdkChatClient(ICopilotSdkClientProvider clientProvider, IOptions<GitHubCopilotOptions> options) : ICopilotChatClient, IAsyncDisposable
 {
     private readonly GitHubCopilotOptions _options = options.Value;
-    private readonly string _sessionId = $"zamba-api-{Guid.NewGuid()}";
-    private dynamic? _session;
-    private readonly SemaphoreSlim _sessionInitLock = new(1, 1);
 
-    public async Task<ChatCompletionResult> GetChatCompletionAsync(
-        string systemContext, string userPrompt, byte[]? fileBytes, string? fileName, bool isFirstInvocation, CancellationToken cancellationToken)
+    public async Task<ChatCompletionResult> GetChatCompletionAsync(string prompt, CancellationToken cancellationToken)
     {
-        // Ensure session is created and kept open across multiple invocations.
-        if (_session == null)
+        var client = await clientProvider.GetClientAsync(cancellationToken);
+        var sessionId = $"zamba-api-{Guid.NewGuid()}";
+        dynamic session = await client.CreateSessionAsync(new SessionConfig
         {
-            await _sessionInitLock.WaitAsync(cancellationToken);
-            try
-            {
-                if (_session == null)
-                {
-                    var client = await clientProvider.GetClientAsync(cancellationToken);
-                    _session = await client.CreateSessionAsync(new SessionConfig
-                    {
-                        SessionId = _sessionId,
-                        GitHubToken = _options.ApiKey,
-                        Model = _options.ChatModel,
-                        SystemMessage = string.IsNullOrWhiteSpace(systemContext)
-                            ? null
-                            : new SystemMessageConfig { Mode = SystemMessageMode.Append, Content = systemContext },
-                        Streaming = false,
-                        // No custom tools are provided for this scenario; keep the model from invoking any.
-                        AvailableTools = []
-                    });
-                }
-            }
-            finally
-            {
-                _sessionInitLock.Release();
-            }
-        }
-
-        dynamic session = _session!;
+            SessionId = sessionId,
+            GitHubToken = _options.ApiKey,
+            Model = _options.ChatModel,
+            Streaming = false,
+            AvailableTools = []
+        });
 
         var responseBuilder = new StringBuilder();
         var usage = new ChatUsage();
@@ -92,63 +67,42 @@ public class CopilotSdkChatClient(ICopilotSdkClientProvider clientProvider, IOpt
             }
         };
 
-        using var subscription = ((dynamic)_session).On<SessionEvent>((Action<SessionEvent>)eventHandler);
-
-        var message = new MessageOptions { Prompt = userPrompt };
-        // Only attach the file on the first invocation to avoid re-sending on subsequent prompts.
-        if (isFirstInvocation && fileBytes is not null && !string.IsNullOrWhiteSpace(fileName))
+        try
         {
-            message.Attachments =
-            [
-                new AttachmentBlob
-                {
-                    Data = Convert.ToBase64String(fileBytes),
-                    MimeType = GetMimeType(fileName)
-                }
-            ];
+            using var subscription = ((dynamic)session).On<SessionEvent>((Action<SessionEvent>)eventHandler);
+            await session.SendAsync(new MessageOptions { Prompt = prompt });
+
+            using (cancellationToken.Register(() => idle.TrySetCanceled(cancellationToken)))
+            {
+                await idle.Task;
+            }
+
+            if (sessionError is not null)
+            {
+                throw sessionError;
+            }
+
+            var response = responseBuilder.ToString();
+            if (string.IsNullOrEmpty(response))
+            {
+                throw new InvalidOperationException("Copilot session returned no assistant message.");
+            }
+
+            return new ChatCompletionResult(
+                response,
+                string.IsNullOrEmpty(usage.Model) ? null : usage,
+                sessionId);
         }
-
-        await session.SendAsync(message);
-
-        await using (cancellationToken.Register(() => idle.TrySetCanceled(cancellationToken)))
+        finally
         {
-            await idle.Task;
+            if (session is IAsyncDisposable disposable)
+            {
+                await disposable.DisposeAsync();
+            }
         }
-
-        if (sessionError is not null)
-        {
-            throw sessionError;
-        }
-
-        var response = responseBuilder.ToString();
-        if (string.IsNullOrEmpty(response))
-        {
-            throw new InvalidOperationException("Copilot session returned no assistant message.");
-        }
-
-        return new ChatCompletionResult(
-            response, 
-            string.IsNullOrEmpty(usage.Model) ? null : usage,
-            _sessionId);
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (_session is IAsyncDisposable disposable)
-        {
-            await disposable.DisposeAsync();
-        }
-    }
-
-    private static string GetMimeType(string fileName)
-    {
-        return Path.GetExtension(fileName).ToLowerInvariant() switch
-        {
-            ".pdf" => "application/pdf",
-            ".png" => "image/png",
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".gif" => "image/gif",
-            _ => "application/octet-stream"
-        };
     }
 }

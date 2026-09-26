@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
+using System.Text.RegularExpressions;
 using Zamba.Api.Configuration;
 
 namespace Zamba.Api.Services;
@@ -7,6 +8,8 @@ namespace Zamba.Api.Services;
 public interface IVectorStore
 {
     Task<bool> DocumentExistsAsync(string documentId, CancellationToken cancellationToken);
+
+    Task<bool> HasChunksAsync(string documentId, CancellationToken cancellationToken);
 
     Task<string?> GetFileNameAsync(string documentId, CancellationToken cancellationToken);
 
@@ -17,7 +20,7 @@ public interface IVectorStore
     Task SaveChunksAsync(string documentId, string fileName, IReadOnlyList<DocumentChunk> chunks, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<DocumentChunk>> FindMostRelevantChunksAsync(
-        string documentId, float[] queryEmbedding, int topK, CancellationToken cancellationToken);
+        string documentId, float[] queryEmbedding, string queryText, int topK, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -87,6 +90,18 @@ public class SqliteVectorStore : IVectorStore
 
         var count = (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
         return count > 0;
+    }
+
+    public async Task<bool> HasChunksAsync(string documentId, CancellationToken cancellationToken)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM Chunks WHERE DocumentId = $documentId)";
+        command.Parameters.AddWithValue("$documentId", documentId);
+
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) != 0;
     }
 
     public async Task<string?> GetFileNameAsync(string documentId, CancellationToken cancellationToken)
@@ -188,8 +203,13 @@ public class SqliteVectorStore : IVectorStore
     }
 
     public async Task<IReadOnlyList<DocumentChunk>> FindMostRelevantChunksAsync(
-        string documentId, float[] queryEmbedding, int topK, CancellationToken cancellationToken)
+        string documentId, float[] queryEmbedding, string queryText, int topK, CancellationToken cancellationToken)
     {
+        if (topK <= 0)
+        {
+            return [];
+        }
+
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
@@ -213,11 +233,33 @@ public class SqliteVectorStore : IVectorStore
             }
         }
 
+        var candidateCount = Math.Max(topK, topK * 4);
+        var queryTerms = Tokenize(queryText);
         return scored
+            .OrderByDescending(x => x.Score)
+            .Take(candidateCount)
+            .Select(x => (x.Chunk, Score: RerankScore(x.Chunk.Content, queryTerms, x.Score)))
             .OrderByDescending(x => x.Score)
             .Take(topK)
             .Select(x => x.Chunk)
             .ToList();
+    }
+
+    private static HashSet<string> Tokenize(string text) =>
+        Regex.Matches(text.ToLowerInvariant(), @"[\p{L}\p{N}]{2,}")
+            .Select(match => match.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+    private static double RerankScore(string content, HashSet<string> queryTerms, double vectorScore)
+    {
+        if (queryTerms.Count == 0)
+        {
+            return vectorScore;
+        }
+
+        var contentTerms = Tokenize(content);
+        var lexicalScore = (double)queryTerms.Count(contentTerms.Contains) / queryTerms.Count;
+        return Math.Max(0, vectorScore) * 0.65 + lexicalScore * 0.35;
     }
 
     private static byte[] EmbeddingToBytes(float[] embedding)

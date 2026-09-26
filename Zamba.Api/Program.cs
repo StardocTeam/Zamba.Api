@@ -16,6 +16,8 @@ builder.Services.AddOptions<Zamba.Api.Configuration.VectorStoreOptions>()
     .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.VectorStoreOptions.SectionName));
 builder.Services.AddOptions<Zamba.Api.Configuration.FileProcessingOptions>()
     .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.FileProcessingOptions.SectionName));
+builder.Services.AddOptions<Zamba.Api.Configuration.PdfOcrOptions>()
+    .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.PdfOcrOptions.SectionName));
 
 // Add Entity Framework Core with SQL Server
 var connectionString = builder.Configuration.GetConnectionString("ZambaConnectionDEV") 
@@ -31,8 +33,10 @@ builder.Services.AddScoped<IValidator<Zamba.Api.DTOs.ScheduleConfigDto>, Zamba.A
 // Add Schedule services
 builder.Services.AddScoped<Zamba.Api.Services.IScheduleMapper, Zamba.Api.Services.ScheduleMapper>();
 
+builder.Services.AddSingleton<Zamba.Api.Services.IPdfOcr, Zamba.Api.Services.LocalPdfOcr>();
 builder.Services.AddSingleton<Zamba.Api.Services.IFileTextExtractor, Zamba.Api.Services.FileTextExtractor>();
 builder.Services.AddSingleton<Zamba.Api.Services.ITextChunker, Zamba.Api.Services.TextChunker>();
+builder.Services.AddSingleton<Zamba.Api.Services.IDocumentSkillProvider, Zamba.Api.Services.DocumentSkillProvider>();
 builder.Services.AddSingleton<Zamba.Api.Services.IVectorStore, Zamba.Api.Services.SqliteVectorStore>();
 builder.Services.AddScoped<Zamba.Api.Services.IMemoryContextService, Zamba.Api.Services.MemoryContextService>();
 

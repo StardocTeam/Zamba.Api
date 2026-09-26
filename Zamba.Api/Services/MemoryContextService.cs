@@ -22,6 +22,7 @@ public class MemoryContextService(
     IEmbeddingClient embeddingClient,
     IVectorStore vectorStore,
     ICopilotChatClient chatClient,
+    IDocumentSkillProvider documentSkillProvider,
     IOptions<VectorStoreOptions> vectorStoreOptions,
     IOptions<FileProcessingOptions> fileProcessingOptions,
     IOptions<GitHubCopilotOptions> copilotOptions) : IMemoryContextService
@@ -38,7 +39,6 @@ public class MemoryContextService(
         string documentId;
         string fileName;
         bool isIndexed;
-        byte[]? fileBytesForModel = null;
 
         if (!string.IsNullOrWhiteSpace(request.FileBase64))
         {
@@ -60,9 +60,10 @@ public class MemoryContextService(
 
             documentId = ComputeDocumentId(fileBytes);
             fileName = request.FileName!;
-            isIndexed = await vectorStore.DocumentExistsAsync(documentId, cancellationToken);
+            isIndexed = await vectorStore.DocumentExistsAsync(documentId, cancellationToken)
+                && await vectorStore.HasChunksAsync(documentId, cancellationToken);
 
-            if (!isIndexed && textExtractor.TryExtractText(fileBytes, fileName, out var text))
+            if (!isIndexed && await textExtractor.ExtractTextAsync(fileBytes, fileName, cancellationToken) is { } text)
             {
                 var chunks = textChunker.Chunk(text, _vectorStoreOptions.ChunkSize, _vectorStoreOptions.ChunkOverlap);
                 var embeddedChunks = new List<DocumentChunk>(chunks.Count);
@@ -86,13 +87,7 @@ public class MemoryContextService(
 
             if (!isIndexed)
             {
-                await vectorStore.SaveFileAsync(documentId, fileName, fileBytes, cancellationToken);
-                isIndexed = true;
-                fileBytesForModel = fileBytes;
-            }
-            else
-            {
-                fileBytesForModel = await vectorStore.GetFileBytesAsync(documentId, cancellationToken);
+                throw new ArgumentException("No text could be extracted from the document. OCR processing is required for this file.");
             }
         }
         else
@@ -105,7 +100,11 @@ public class MemoryContextService(
             }
 
             fileName = await vectorStore.GetFileNameAsync(documentId, cancellationToken) ?? "unknown";
-            fileBytesForModel = await vectorStore.GetFileBytesAsync(documentId, cancellationToken);
+            isIndexed = await vectorStore.HasChunksAsync(documentId, cancellationToken);
+            if (!isIndexed)
+            {
+                throw new ArgumentException($"Document '{documentId}' has no indexed text. Re-upload it after enabling text extraction or OCR.");
+            }
         }
 
         stats.DocumentAlreadyIndexed = isIndexed;
@@ -117,16 +116,14 @@ public class MemoryContextService(
         retrievalStopwatch.Stop();
         stats.RetrievalDurationMs = retrievalStopwatch.ElapsedMilliseconds;
 
-        var systemContext = fileBytesForModel is not null
-            ? BuildFileAttachmentContext(fileName)
-            : BuildSystemContext(fileName, relevantChunks);
-
-        // First invocation is when the file is provided in the request (not from DocumentId retrieval).
-        var isFirstInvocation = !string.IsNullOrWhiteSpace(request.FileBase64);
+        var promptWithContext = BuildPromptWithContext(
+            fileName,
+            relevantChunks,
+            documentSkillProvider.GetInstructions(request.DocumentTypeCode),
+            request.Prompt);
 
         var chatStopwatch = Stopwatch.StartNew();
-        var completion = await chatClient.GetChatCompletionAsync(
-            systemContext, request.Prompt, fileBytesForModel, fileName, isFirstInvocation, cancellationToken);
+        var completion = await chatClient.GetChatCompletionAsync(promptWithContext, cancellationToken);
         chatStopwatch.Stop();
         stats.ChatDurationMs = chatStopwatch.ElapsedMilliseconds;
 
@@ -158,36 +155,45 @@ public class MemoryContextService(
     {
         var queryEmbedding = await embeddingClient.GetEmbeddingAsync(prompt, cancellationToken);
         return await vectorStore.FindMostRelevantChunksAsync(
-            documentId, queryEmbedding, _vectorStoreOptions.TopK, cancellationToken);
+            documentId, queryEmbedding, prompt, _vectorStoreOptions.TopK, cancellationToken);
     }
 
-    private static string BuildSystemContext(string fileName, IReadOnlyList<DocumentChunk> relevantChunks)
+    private static string BuildPromptWithContext(
+        string fileName,
+        IReadOnlyList<DocumentChunk> relevantChunks,
+        string? documentInstructions,
+        string userPrompt)
     {
-        if (relevantChunks.Count == 0)
-        {
-            return $"The user attached a file named '{fileName}' but no text content could be extracted from it " +
-                   "(it may be binary or empty). Answer the user's prompt as best you can without file context.";
-        }
-
         var builder = new StringBuilder();
-        builder.AppendLine($"The following are the most relevant excerpts from the file '{fileName}' for the user's prompt.");
-        builder.AppendLine("Use them as context to answer accurately; do not invent information that is not present.");
+        builder.AppendLine("Follow the document-type instructions and answer using only the relevant excerpts below. Do not invent document facts.");
+        builder.AppendLine($"Document: {fileName}");
         builder.AppendLine();
 
-        foreach (var chunk in relevantChunks.OrderBy(c => c.Index))
+        if (!string.IsNullOrWhiteSpace(documentInstructions))
         {
-            builder.AppendLine($"--- Excerpt {chunk.Index} ---");
-            builder.AppendLine(chunk.Content);
+            builder.AppendLine("Document-type instructions:");
+            builder.AppendLine(documentInstructions);
             builder.AppendLine();
         }
 
-        return builder.ToString();
-    }
+        if (relevantChunks.Count == 0)
+        {
+            builder.AppendLine("No text excerpts were retrieved for this document.");
+        }
+        else
+        {
+            foreach (var chunk in relevantChunks.OrderBy(c => c.Index))
+            {
+                builder.AppendLine($"--- Excerpt {chunk.Index} ---");
+                builder.AppendLine(chunk.Content);
+            }
 
-    private static string BuildFileAttachmentContext(string fileName)
-    {
-        return $"The attached file '{fileName}' is the source document. Inspect its pages and answer using the file contents. " +
-               "Return exactly the format requested by the user and do not say that the document is unavailable.";
+            builder.AppendLine();
+        }
+
+        builder.AppendLine("User request:");
+        builder.AppendLine(userPrompt);
+        return builder.ToString();
     }
 
     private static string ComputeDocumentId(byte[] fileBytes)
