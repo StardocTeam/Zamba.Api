@@ -24,6 +24,7 @@ public class MemoryContextService(
     ICopilotChatClient chatClient,
     IDocumentSkillProvider documentSkillProvider,
     ICopilotTelemetryService telemetry,
+    IInvoiceQrCodeExtractor invoiceQrCodeExtractor,
     IOptions<VectorStoreOptions> vectorStoreOptions,
     IOptions<FileProcessingOptions> fileProcessingOptions,
     IOptions<GitHubCopilotOptions> copilotOptions) : IMemoryContextService
@@ -37,6 +38,7 @@ public class MemoryContextService(
         var totalStopwatch = Stopwatch.StartNew();
         var stats = new PromptStats { EmbeddingProvider = _copilotOptions.EmbeddingProvider };
         var run = await telemetry.StartRunAsync(request, cancellationToken);
+        string? invoiceQrContext = null;
 
         try
         {
@@ -56,6 +58,17 @@ public class MemoryContextService(
 
                 documentId = ComputeDocumentId(fileBytes);
                 fileName = request.FileName!;
+                if (request.DocumentTypeCode == 26)
+                {
+                    var qrCodes = await TrackStepAsync(
+                        run.Id,
+                        "invoice_qr_extraction",
+                        () => invoiceQrCodeExtractor.ExtractAsync(fileBytes, fileName, cancellationToken),
+                        cancellationToken,
+                        result => $"QR codes found: {result.Count}");
+                    invoiceQrContext = System.Text.Json.JsonSerializer.Serialize(qrCodes);
+                }
+
                 isIndexed = await TrackStepAsync(
                     run.Id,
                     "document_cache_check",
@@ -170,6 +183,7 @@ public class MemoryContextService(
                     fileName,
                     relevantChunks,
                     documentSkillProvider.GetInstructions(request.DocumentTypeCode),
+                    invoiceQrContext,
                     request.Prompt)),
                 cancellationToken,
                 result => $"Prompt characters: {result.Length}");
@@ -281,6 +295,7 @@ public class MemoryContextService(
         string fileName,
         IReadOnlyList<DocumentChunk> relevantChunks,
         string? documentInstructions,
+        string? invoiceQrContext,
         string userPrompt)
     {
         var builder = new StringBuilder();
@@ -292,6 +307,13 @@ public class MemoryContextService(
         {
             builder.AppendLine("Document-type instructions:");
             builder.AppendLine(documentInstructions);
+            builder.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(invoiceQrContext))
+        {
+            builder.AppendLine("Decoded invoice QR data:");
+            builder.AppendLine(invoiceQrContext);
             builder.AppendLine();
         }
 

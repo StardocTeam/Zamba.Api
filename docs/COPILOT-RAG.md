@@ -8,16 +8,15 @@ The chat SDK creates an isolated session per prompt with tools disabled. This pr
 
 ## Scanned PDFs
 
-Text PDFs continue to use PdfPig. If a PDF has no extractable text, the API renders its pages to temporary PNG files with Poppler `pdftoppm` and runs Tesseract OCR on those images. Temporary files are deleted when processing ends. OCR limits are configured under `PdfOcr` in `appsettings.json`:
+Text PDFs continue to use PdfPig. If a PDF has no extractable text, the API renders its pages in memory with PDFium and runs PaddleOCR's Latin V5 model. The OCR engine, model, image-processing runtime, and Windows native dependencies are NuGet dependencies of `Zamba.Api`; no Poppler/Tesseract executables or server-side installers are required. OCR limits are configured under `PdfOcr` in `appsettings.json`:
 
-- `PdfToPpmPath`: `pdftoppm` executable name or absolute path.
-- `TesseractPath`: `tesseract` executable name or absolute path.
-- `Language`: installed Tesseract language codes, for example `spa+eng`.
+The invoice QR endpoint (`POST /api/invoices/qr`) also renders PDF pages in memory with PDFium through the `PDFtoImage` NuGet package.
+
 - `Dpi`: rasterization resolution.
 - `MaxPages`: maximum PDF pages accepted for OCR.
 - `TimeoutSeconds`: overall OCR processing deadline.
 
-Install Poppler and Tesseract on every API host and ensure both executables and the configured Tesseract language data are available to the API process. This development host did not have these executables installed, so scanned-PDF OCR requires that host setup before it can run. The API returns HTTP 503 with setup guidance when an executable is unavailable, and rejects PDFs above the configured page limit.
+The Latin V5 recognizer covers Latin-script text including Spanish and English. The API rejects PDFs above the configured page limit.
 
 ## Document skills
 

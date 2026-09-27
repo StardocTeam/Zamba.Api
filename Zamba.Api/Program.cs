@@ -35,7 +35,15 @@ builder.Services.AddScoped<Zamba.Api.Services.IScheduleMapper, Zamba.Api.Service
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryService, Zamba.Api.Services.CopilotTelemetryService>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryQueryService, Zamba.Api.Services.CopilotTelemetryQueryService>();
 
+builder.Services.AddSingleton(provider => new Sdcb.PaddleOCR.PaddleOcrAll(
+    Sdcb.PaddleOCR.Models.Local.LocalFullModels.LatinV5,
+    Sdcb.PaddleInference.PaddleDevice.Mkldnn())
+{
+    AllowRotateDetection = true,
+    Enable180Classification = false
+});
 builder.Services.AddSingleton<Zamba.Api.Services.IPdfOcr, Zamba.Api.Services.LocalPdfOcr>();
+builder.Services.AddSingleton<Zamba.Api.Services.IInvoiceQrCodeExtractor, Zamba.Api.Services.InvoiceQrCodeExtractor>();
 builder.Services.AddSingleton<Zamba.Api.Services.IFileTextExtractor, Zamba.Api.Services.FileTextExtractor>();
 builder.Services.AddSingleton<Zamba.Api.Services.ITextChunker, Zamba.Api.Services.TextChunker>();
 builder.Services.AddSingleton<Zamba.Api.Services.IDocumentSkillProvider, Zamba.Api.Services.DocumentSkillProvider>();
