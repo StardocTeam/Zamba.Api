@@ -33,6 +33,7 @@ builder.Services.AddScoped<IValidator<Zamba.Api.DTOs.ScheduleConfigDto>, Zamba.A
 // Add Schedule services
 builder.Services.AddScoped<Zamba.Api.Services.IScheduleMapper, Zamba.Api.Services.ScheduleMapper>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryService, Zamba.Api.Services.CopilotTelemetryService>();
+builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryQueryService, Zamba.Api.Services.CopilotTelemetryQueryService>();
 
 builder.Services.AddSingleton<Zamba.Api.Services.IPdfOcr, Zamba.Api.Services.LocalPdfOcr>();
 builder.Services.AddSingleton<Zamba.Api.Services.IFileTextExtractor, Zamba.Api.Services.FileTextExtractor>();
