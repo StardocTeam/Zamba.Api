@@ -14,6 +14,17 @@ public sealed class CopilotTelemetrySummaryDto
     public double? AverageTotalDurationMs { get; set; }
     public double? AverageInputTokens { get; set; }
     public double? AverageEstimatedCost { get; set; }
+    public long TotalInputTokens { get; set; }
+    public long TotalOutputTokens { get; set; }
+    public long TotalTokens { get; set; }
+    public double? AverageTotalTokensPerRequest { get; set; }
+    public double EstimatedPlanCostPerRequestUsd { get; set; }
+    public int MonthRequestCount { get; set; }
+    public long MonthTotalTokens { get; set; }
+    public double MonthEstimatedCostUsd { get; set; }
+    public int LifetimeRequestCount { get; set; }
+    public long LifetimeTotalTokens { get; set; }
+    public double LifetimeEstimatedCostUsd { get; set; }
 }
 
 public sealed class CopilotNegativeRunsPageDto

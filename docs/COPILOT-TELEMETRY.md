@@ -18,6 +18,12 @@ Verify after applying that `CopilotRuns`, `CopilotRunSteps`, and `CopilotFeedbac
 - `CopilotRunSteps`: one row per instrumented stage, with start/end timestamps, duration, status, bounded diagnostic detail, and exception text on failure. Stages include file decoding/size validation, cache lookup, OCR/text extraction, chunking, embedding, index persistence, retrieval/reranking, prompt construction, and Copilot completion.
 - `CopilotFeedback`: latest thumbs-up (`1`) or thumbs-down (`-1`) per run and browser voter ID, plus optional comment. A unique index on `(RunId, VoterId)` means a changed rating replaces that voter's previous rating for that answer.
 
+## Token and plan-cost estimates
+
+The dashboard aggregates input and output tokens from `CopilotRuns`; no aggregate table is needed because each accepted request and its token usage are already persisted there. The selected date/document filters apply to the period token total and average tokens per request. Current-month and lifetime totals are global and are calculated from `StartedAtUtc` in UTC.
+
+The plan estimate allocates USD 20 across 1,500 PRO AI credits, or approximately USD 0.01333 per credit. Since credit consumption per run is not returned or stored by the current SDK integration, the dashboard assumes one credit per request. Treat the resulting monthly and lifetime USD amounts as quota-allocation estimates, not measured charges. Failed and in-progress rows count as requests; token fields that are still null contribute zero tokens.
+
 Prompts, answers, and exception messages can contain personal or confidential data. Restrict SQL access, define a retention policy, and avoid putting secrets or document text into diagnostic details. `VoterId` is a client-generated stable browser identifier, not an authenticated identity.
 
 ## Example tuning queries

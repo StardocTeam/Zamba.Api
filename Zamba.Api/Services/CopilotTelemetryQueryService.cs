@@ -23,6 +23,9 @@ public interface ICopilotTelemetryQueryService
 
 public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICopilotTelemetryQueryService
 {
+    private const double ProMonthlyPlanCostUsd = 20d;
+    private const int ProMonthlyAiCredits = 1500;
+
     public async Task<CopilotTelemetrySummaryDto> GetSummaryAsync(
         DateTime? fromUtc, DateTime? toUtc, int? documentTypeCode, CancellationToken cancellationToken)
     {
@@ -30,11 +33,19 @@ public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICo
         var feedback = dbContext.CopilotFeedback.AsNoTracking()
             .Where(item => runs.Any(run => run.Id == item.RunId));
 
-        var totalRuns = await runs.CountAsync(cancellationToken);
+        var filteredUsage = await GetUsageTotalsAsync(runs, cancellationToken);
+        var nowUtc = DateTime.UtcNow;
+        var monthStartUtc = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var monthUsage = await GetUsageTotalsAsync(
+            FilterRuns(monthStartUtc, nowUtc, null), cancellationToken);
+        var lifetimeUsage = await GetUsageTotalsAsync(
+            FilterRuns(null, null, null), cancellationToken);
+        var totalRuns = filteredUsage.RequestCount;
         var positiveVotes = await feedback.CountAsync(item => item.Rating > 0, cancellationToken);
         var negativeVotes = await feedback.CountAsync(item => item.Rating < 0, cancellationToken);
         var negativeRuns = await runs.CountAsync(run => run.Feedback.Any(item => item.Rating < 0), cancellationToken);
         var ratedRuns = await runs.CountAsync(run => run.Feedback.Any(), cancellationToken);
+        var estimatedPlanCostPerRequestUsd = ProMonthlyPlanCostUsd / ProMonthlyAiCredits;
 
         return new CopilotTelemetrySummaryDto
         {
@@ -54,7 +65,18 @@ public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICo
             AverageInputTokens = await runs.Where(run => run.InputTokens != null)
                 .AverageAsync(run => (double?)run.InputTokens, cancellationToken),
             AverageEstimatedCost = await runs.Where(run => run.EstimatedCost != null)
-                .AverageAsync(run => (double?)run.EstimatedCost, cancellationToken)
+                .AverageAsync(run => (double?)run.EstimatedCost, cancellationToken),
+            TotalInputTokens = filteredUsage.InputTokens,
+            TotalOutputTokens = filteredUsage.OutputTokens,
+            TotalTokens = filteredUsage.TotalTokens,
+            AverageTotalTokensPerRequest = totalRuns == 0 ? null : (double)filteredUsage.TotalTokens / totalRuns,
+            EstimatedPlanCostPerRequestUsd = estimatedPlanCostPerRequestUsd,
+            MonthRequestCount = monthUsage.RequestCount,
+            MonthTotalTokens = monthUsage.TotalTokens,
+            MonthEstimatedCostUsd = monthUsage.RequestCount * estimatedPlanCostPerRequestUsd,
+            LifetimeRequestCount = lifetimeUsage.RequestCount,
+            LifetimeTotalTokens = lifetimeUsage.TotalTokens,
+            LifetimeEstimatedCostUsd = lifetimeUsage.RequestCount * estimatedPlanCostPerRequestUsd
         };
     }
 
@@ -193,8 +215,30 @@ public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICo
         return query;
     }
 
+    private static async Task<UsageTotals> GetUsageTotalsAsync(
+        IQueryable<CopilotRun> runs, CancellationToken cancellationToken)
+    {
+        var totals = await runs.GroupBy(_ => 1)
+            .Select(group => new
+            {
+                RequestCount = group.Count(),
+                InputTokens = group.Sum(run => run.InputTokens ?? 0L),
+                OutputTokens = group.Sum(run => run.OutputTokens ?? 0L)
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return totals is null
+            ? new UsageTotals(0, 0, 0)
+            : new UsageTotals(totals.RequestCount, totals.InputTokens, totals.OutputTokens);
+    }
+
     private static string Preview(string? value, int maxLength) =>
         string.IsNullOrWhiteSpace(value) || value.Length <= maxLength
             ? value ?? string.Empty
             : value[..maxLength] + "...";
+
+    private sealed record UsageTotals(int RequestCount, long InputTokens, long OutputTokens)
+    {
+        public long TotalTokens => InputTokens + OutputTokens;
+    }
 }
