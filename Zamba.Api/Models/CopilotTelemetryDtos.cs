@@ -18,9 +18,13 @@ public sealed class CopilotTelemetrySummaryDto
     public long TotalOutputTokens { get; set; }
     public long TotalTokens { get; set; }
     public double? AverageTotalTokensPerRequest { get; set; }
-    public double EstimatedPlanCostPerRequestUsd { get; set; }
+    public double CreditsUsed { get; set; }
+    public double? AverageCostAtOverageRateUsd { get; set; }
     public int MonthRequestCount { get; set; }
     public long MonthTotalTokens { get; set; }
+    public double MonthCreditsUsed { get; set; }
+    public double MonthCreditsExceeded { get; set; }
+    public double MonthAdditionalCostUsd { get; set; }
     public double MonthEstimatedCostUsd { get; set; }
     public int LifetimeRequestCount { get; set; }
     public long LifetimeTotalTokens { get; set; }
@@ -48,6 +52,8 @@ public sealed class CopilotNegativeRunDto
     public long? TotalDurationMs { get; set; }
     public long? InputTokens { get; set; }
     public long? OutputTokens { get; set; }
+    public double? CopilotCreditsUsed { get; set; }
+    public double? EstimatedCostAtOverageRateUsd { get; set; }
     public int NegativeVoteCount { get; set; }
     public string? LatestFeedbackComment { get; set; }
 }
@@ -75,6 +81,8 @@ public sealed class CopilotRunDetailDto
     public long? TotalDurationMs { get; set; }
     public long? InputTokens { get; set; }
     public long? OutputTokens { get; set; }
+    public double? CopilotCreditsUsed { get; set; }
+    public double? EstimatedCostAtOverageRateUsd { get; set; }
     public long? CacheReadTokens { get; set; }
     public long? CacheWriteTokens { get; set; }
     public double? EstimatedCost { get; set; }

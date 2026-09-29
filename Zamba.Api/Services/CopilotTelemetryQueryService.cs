@@ -23,9 +23,6 @@ public interface ICopilotTelemetryQueryService
 
 public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICopilotTelemetryQueryService
 {
-    private const double ProMonthlyPlanCostUsd = 20d;
-    private const int ProMonthlyAiCredits = 1500;
-
     public async Task<CopilotTelemetrySummaryDto> GetSummaryAsync(
         DateTime? fromUtc, DateTime? toUtc, int? documentTypeCode, CancellationToken cancellationToken)
     {
@@ -40,12 +37,20 @@ public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICo
             FilterRuns(monthStartUtc, nowUtc, null), cancellationToken);
         var lifetimeUsage = await GetUsageTotalsAsync(
             FilterRuns(null, null, null), cancellationToken);
+        var lifetimeMonthlyTokenTotals = await dbContext.CopilotRuns.AsNoTracking()
+            .GroupBy(run => new { run.StartedAtUtc.Year, run.StartedAtUtc.Month })
+            .Select(group => group.Sum(run => (run.InputTokens ?? 0L) + (run.OutputTokens ?? 0L)))
+            .ToListAsync(cancellationToken);
         var totalRuns = filteredUsage.RequestCount;
+        var tokenizedRuns = await runs.CountAsync(
+            run => run.InputTokens != null || run.OutputTokens != null, cancellationToken);
         var positiveVotes = await feedback.CountAsync(item => item.Rating > 0, cancellationToken);
         var negativeVotes = await feedback.CountAsync(item => item.Rating < 0, cancellationToken);
         var negativeRuns = await runs.CountAsync(run => run.Feedback.Any(item => item.Rating < 0), cancellationToken);
         var ratedRuns = await runs.CountAsync(run => run.Feedback.Any(), cancellationToken);
-        var estimatedPlanCostPerRequestUsd = ProMonthlyPlanCostUsd / ProMonthlyAiCredits;
+        var monthCreditsUsed = monthUsage.TotalTokens / 1000d;
+        var monthCreditsExceeded = Math.Max(0d,
+            monthCreditsUsed - CopilotPlanCostEstimator.MonthlyCreditsIncluded);
 
         return new CopilotTelemetrySummaryDto
         {
@@ -65,18 +70,25 @@ public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICo
             AverageInputTokens = await runs.Where(run => run.InputTokens != null)
                 .AverageAsync(run => (double?)run.InputTokens, cancellationToken),
             AverageEstimatedCost = await runs.Where(run => run.EstimatedCost != null)
-                .AverageAsync(run => (double?)run.EstimatedCost, cancellationToken),
+                .AverageAsync(run => run.EstimatedCost, cancellationToken),
             TotalInputTokens = filteredUsage.InputTokens,
             TotalOutputTokens = filteredUsage.OutputTokens,
             TotalTokens = filteredUsage.TotalTokens,
             AverageTotalTokensPerRequest = totalRuns == 0 ? null : (double)filteredUsage.TotalTokens / totalRuns,
-            EstimatedPlanCostPerRequestUsd = estimatedPlanCostPerRequestUsd,
+            CreditsUsed = filteredUsage.TotalTokens / 1000d,
+            AverageCostAtOverageRateUsd = tokenizedRuns == 0
+                ? null
+                : filteredUsage.TotalTokens / 1000d * CopilotPlanCostEstimator.CostPerAdditionalCreditUsd / tokenizedRuns,
             MonthRequestCount = monthUsage.RequestCount,
             MonthTotalTokens = monthUsage.TotalTokens,
-            MonthEstimatedCostUsd = monthUsage.RequestCount * estimatedPlanCostPerRequestUsd,
+            MonthCreditsUsed = monthCreditsUsed,
+            MonthCreditsExceeded = monthCreditsExceeded,
+            MonthAdditionalCostUsd = monthCreditsExceeded * CopilotPlanCostEstimator.CostPerAdditionalCreditUsd,
+            MonthEstimatedCostUsd = CopilotPlanCostEstimator.CalculateMonthlyPlanCostUsd(monthUsage.TotalTokens),
             LifetimeRequestCount = lifetimeUsage.RequestCount,
             LifetimeTotalTokens = lifetimeUsage.TotalTokens,
-            LifetimeEstimatedCostUsd = lifetimeUsage.RequestCount * estimatedPlanCostPerRequestUsd
+            LifetimeEstimatedCostUsd = lifetimeMonthlyTokenTotals.Sum(
+                CopilotPlanCostEstimator.CalculateMonthlyPlanCostUsd)
         };
     }
 
@@ -126,6 +138,10 @@ public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICo
                 TotalDurationMs = run.TotalDurationMs,
                 InputTokens = run.InputTokens,
                 OutputTokens = run.OutputTokens,
+                CopilotCreditsUsed = CopilotPlanCostEstimator.CalculateCreditsUsed(
+                    run.InputTokens, run.OutputTokens),
+                EstimatedCostAtOverageRateUsd = CopilotPlanCostEstimator.CalculateCostAtOverageRateUsd(
+                    run.InputTokens, run.OutputTokens),
                 NegativeVoteCount = run.Feedback.Count(item => item.Rating < 0),
                 LatestFeedbackComment = run.Feedback
                     .Where(item => item.Rating < 0)
@@ -170,6 +186,10 @@ public sealed class CopilotTelemetryQueryService(ZambaDbContext dbContext) : ICo
             TotalDurationMs = run.TotalDurationMs,
             InputTokens = run.InputTokens,
             OutputTokens = run.OutputTokens,
+            CopilotCreditsUsed = CopilotPlanCostEstimator.CalculateCreditsUsed(
+                run.InputTokens, run.OutputTokens),
+            EstimatedCostAtOverageRateUsd = CopilotPlanCostEstimator.CalculateCostAtOverageRateUsd(
+                run.InputTokens, run.OutputTokens),
             CacheReadTokens = run.CacheReadTokens,
             CacheWriteTokens = run.CacheWriteTokens,
             EstimatedCost = run.EstimatedCost,

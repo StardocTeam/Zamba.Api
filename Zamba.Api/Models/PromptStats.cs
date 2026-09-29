@@ -33,6 +33,14 @@ public class PromptStats
         ? (InputTokens ?? 0) + (OutputTokens ?? 0)
         : null;
 
+    /// <summary>Token-derived credits; 1 credit represents 1,000 input and output tokens combined.</summary>
+    public double? CopilotCreditsUsed =>
+        Services.CopilotPlanCostEstimator.CalculateCreditsUsed(InputTokens, OutputTokens);
+
+    /// <summary>Equivalent usage cost at the overage rate, before applying the monthly included quota.</summary>
+    public double? EstimatedCostAtOverageRateUsd =>
+        Services.CopilotPlanCostEstimator.CalculateCostAtOverageRateUsd(InputTokens, OutputTokens);
+
     public long? CacheReadTokens { get; set; }
 
     public long? CacheWriteTokens { get; set; }
