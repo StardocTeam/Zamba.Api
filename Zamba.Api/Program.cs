@@ -7,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.AddHttpClient("ScheduleExecution", client => client.Timeout = TimeSpan.FromSeconds(60));
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
@@ -32,6 +33,7 @@ builder.Services.AddScoped<IValidator<Zamba.Api.DTOs.ScheduleConfigDto>, Zamba.A
 
 // Add Schedule services
 builder.Services.AddScoped<Zamba.Api.Services.IScheduleMapper, Zamba.Api.Services.ScheduleMapper>();
+builder.Services.AddScoped<Zamba.Api.Services.IScheduleExecutionService, Zamba.Api.Services.ScheduleExecutionService>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryService, Zamba.Api.Services.CopilotTelemetryService>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryQueryService, Zamba.Api.Services.CopilotTelemetryQueryService>();
 

@@ -21,19 +21,107 @@ public class ScheduleEventsController : ControllerBase
     private readonly IValidator<CreateOrUpdateScheduleEventDto> _eventValidator;
     private readonly IValidator<ScheduleConfigDto> _configValidator;
     private readonly ILogger<ScheduleEventsController> _logger;
+    private readonly IScheduleExecutionService _executionService;
 
     public ScheduleEventsController(
         ZambaDbContext dbContext,
         IScheduleMapper mapper,
         IValidator<CreateOrUpdateScheduleEventDto> eventValidator,
         IValidator<ScheduleConfigDto> configValidator,
+        IScheduleExecutionService executionService,
         ILogger<ScheduleEventsController> logger)
     {
         _dbContext = dbContext;
         _mapper = mapper;
         _eventValidator = eventValidator;
         _configValidator = configValidator;
+        _executionService = executionService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Executes a schedule action without saving it, for validation in the schedule editor.
+    /// </summary>
+    [HttpPost("test")]
+    [ProducesResponseType(typeof(ScheduleExecutionResultDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ScheduleExecutionResultDto>> TestSchedule(
+        [FromBody] CreateOrUpdateScheduleEventDto dto,
+        CancellationToken cancellationToken)
+    {
+        var validationResult = await _eventValidator.ValidateAsync(dto, cancellationToken);
+        if (!validationResult.IsValid)
+        {
+            return BadRequest(new ErrorResponseDto
+            {
+                Code = "VALIDATION_ERROR",
+                Message = "The request contains invalid data.",
+                ValidationErrors = validationResult.Errors
+                    .GroupBy(error => error.PropertyName)
+                    .ToDictionary(group => group.Key, group => group.Select(error => error.ErrorMessage).ToList())
+            });
+        }
+
+        return Ok(await _executionService.ExecuteAsync(dto, GetApiBaseUri(), cancellationToken));
+    }
+
+    /// <summary>
+    /// Executes a stored schedule action. Called by the schedule worker.
+    /// </summary>
+    [HttpPost("{id}/execute")]
+    [ProducesResponseType(typeof(ScheduleExecutionResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ScheduleExecutionResultDto>> ExecuteSchedule(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var scheduleEvent = await _dbContext.ScheduleEvents
+            .Include(schedule => schedule.ScheduleConfig)
+            .FirstOrDefaultAsync(schedule => schedule.Id == id, cancellationToken);
+
+        if (scheduleEvent == null)
+        {
+            return NotFound(new ErrorResponseDto
+            {
+                Code = "SCHEDULE_EVENT_NOT_FOUND",
+                Message = $"Schedule event with ID {id} not found."
+            });
+        }
+
+        var dto = _mapper.MapToDto(scheduleEvent);
+        var request = new CreateOrUpdateScheduleEventDto
+        {
+            Name = dto.Name,
+            Description = dto.Description,
+            RuleId = dto.RuleId,
+            ExecutionType = dto.ExecutionType,
+            EndpointOverride = dto.EndpointOverride,
+            Query = dto.Query,
+            EndpointUrl = dto.EndpointUrl,
+            EndpointMethod = dto.EndpointMethod,
+            EndpointParameters = dto.EndpointParameters,
+            EndpointBody = dto.EndpointBody,
+            IsActive = dto.IsActive,
+            ScheduleConfig = dto.ScheduleConfig!
+        };
+
+        return Ok(await _executionService.ExecuteAsync(request, GetApiBaseUri(), cancellationToken));
+    }
+
+    /// <summary>
+    /// Executes a read-only SQL SELECT query and returns up to 500 rows.
+    /// </summary>
+    [HttpPost("execute-query")]
+    [ProducesResponseType(typeof(ScheduleExecutionResultDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ScheduleExecutionResultDto>> ExecuteQuery(
+        [FromBody] ExecuteQueryDto dto,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _executionService.ExecuteQueryAsync(dto.Query, cancellationToken));
+    }
+
+    private Uri GetApiBaseUri()
+    {
+        return new Uri($"{Request.Scheme}://{Request.Host}/");
     }
 
     /// <summary>

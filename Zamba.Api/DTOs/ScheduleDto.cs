@@ -20,12 +20,32 @@ public class CreateOrUpdateScheduleEventDto
     /// <summary>
     /// The rule ID or identifier to be executed (required).
     /// </summary>
-    public required string RuleId { get; set; }
+    public string RuleId { get; set; } = "";
+
+    /// <summary>
+    /// Action performed by this schedule. Defaults to the existing rule behavior.
+    /// </summary>
+    public ScheduleExecutionType ExecutionType { get; set; } = ScheduleExecutionType.ExecuteRule;
 
     /// <summary>
     /// Optional override of the endpoint to call.
     /// </summary>
     public string? EndpointOverride { get; set; }
+
+    /// <summary>SQL query for ExecuteQuery schedules.</summary>
+    public string? Query { get; set; }
+
+    /// <summary>Absolute URL for ExecuteEndPoint schedules.</summary>
+    public string? EndpointUrl { get; set; }
+
+    /// <summary>GET or POST for ExecuteEndPoint schedules.</summary>
+    public string? EndpointMethod { get; set; }
+
+    /// <summary>JSON object containing endpoint query parameters.</summary>
+    public string? EndpointParameters { get; set; }
+
+    /// <summary>Endpoint request body.</summary>
+    public string? EndpointBody { get; set; }
 
     /// <summary>
     /// Whether this schedule event is active.
@@ -117,12 +137,24 @@ public class ScheduleEventDto
     /// <summary>
     /// Rule identifier.
     /// </summary>
-    public required string RuleId { get; set; }
+    public string RuleId { get; set; } = "";
+
+    public ScheduleExecutionType ExecutionType { get; set; } = ScheduleExecutionType.ExecuteRule;
 
     /// <summary>
     /// Optional endpoint override.
     /// </summary>
     public string? EndpointOverride { get; set; }
+
+    public string? Query { get; set; }
+
+    public string? EndpointUrl { get; set; }
+
+    public string? EndpointMethod { get; set; }
+
+    public string? EndpointParameters { get; set; }
+
+    public string? EndpointBody { get; set; }
 
     /// <summary>
     /// Whether the event is active.
@@ -153,6 +185,25 @@ public class ScheduleEventDto
     /// Associated schedule configuration.
     /// </summary>
     public ScheduleConfigDto? ScheduleConfig { get; set; }
+}
+
+/// <summary>
+/// Result of a schedule action test or execution.
+/// </summary>
+public class ScheduleExecutionResultDto
+{
+    public int StatusCode { get; set; }
+    public string? ResponseBody { get; set; }
+    public string? ErrorMessage { get; set; }
+    public long DurationMs { get; set; }
+}
+
+/// <summary>
+/// Request to execute a read-only SQL query.
+/// </summary>
+public class ExecuteQueryDto
+{
+    public required string Query { get; set; }
 }
 
 /// <summary>

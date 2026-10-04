@@ -60,11 +60,26 @@ public class ZambaDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(255);
 
+            entity.Property(e => e.ExecutionType)
+                .HasDefaultValue(Models.ScheduleExecutionType.ExecuteRule);
+
             entity.Property(e => e.Description)
                 .HasMaxLength(1000);
 
             entity.Property(e => e.EndpointOverride)
                 .HasMaxLength(500);
+
+            entity.Property(e => e.Query);
+
+            entity.Property(e => e.EndpointUrl)
+                .HasMaxLength(2048);
+
+            entity.Property(e => e.EndpointMethod)
+                .HasMaxLength(10);
+
+            entity.Property(e => e.EndpointParameters);
+
+            entity.Property(e => e.EndpointBody);
 
             entity.Property(e => e.CreatedBy)
                 .HasMaxLength(255);

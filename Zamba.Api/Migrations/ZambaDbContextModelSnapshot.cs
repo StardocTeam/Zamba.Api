@@ -281,6 +281,25 @@ namespace Zamba.Api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("EndpointBody")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EndpointMethod")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("EndpointParameters")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EndpointUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<Zamba.Api.Models.ScheduleExecutionType>("ExecutionType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(Zamba.Api.Models.ScheduleExecutionType.ExecuteRule);
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -288,6 +307,9 @@ namespace Zamba.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Query")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("RuleId")
                         .IsRequired()

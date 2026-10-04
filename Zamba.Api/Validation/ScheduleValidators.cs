@@ -15,9 +15,13 @@ public class CreateOrUpdateScheduleEventValidator : AbstractValidator<CreateOrUp
             .NotEmpty().WithMessage("Name is required")
             .MaximumLength(255).WithMessage("Name must not exceed 255 characters");
 
+        RuleFor(x => x.ExecutionType)
+            .IsInEnum().WithMessage("ExecutionType must be a valid enum value");
+
         RuleFor(x => x.RuleId)
-            .NotEmpty().WithMessage("RuleId is required")
-            .MaximumLength(255).WithMessage("RuleId must not exceed 255 characters");
+            .NotEmpty().WithMessage("RuleId is required for ExecuteRule schedules")
+            .MaximumLength(255).WithMessage("RuleId must not exceed 255 characters")
+            .When(x => x.ExecutionType == ScheduleExecutionType.ExecuteRule);
 
         RuleFor(x => x.Description)
             .MaximumLength(1000).WithMessage("Description must not exceed 1000 characters");
@@ -26,6 +30,28 @@ public class CreateOrUpdateScheduleEventValidator : AbstractValidator<CreateOrUp
             .MaximumLength(500).WithMessage("EndpointOverride must not exceed 500 characters")
             .Must(BeValidUrl).When(x => !string.IsNullOrEmpty(x.EndpointOverride))
             .WithMessage("EndpointOverride must be a valid URL if provided");
+
+        RuleFor(x => x.Query)
+            .NotEmpty().WithMessage("Query is required for ExecuteQuery schedules")
+            .When(x => x.ExecutionType == ScheduleExecutionType.ExecuteQuery);
+
+        RuleFor(x => x.EndpointUrl)
+            .NotEmpty().WithMessage("EndpointUrl is required for ExecuteEndPoint schedules")
+            .Must(BeValidUrl).WithMessage("EndpointUrl must be an absolute HTTP or HTTPS URL")
+            .When(x => x.ExecutionType == ScheduleExecutionType.ExecuteEndPoint);
+
+        RuleFor(x => x.EndpointMethod)
+            .Must(method => string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase))
+            .WithMessage("EndpointMethod must be GET or POST")
+            .When(x => x.ExecutionType == ScheduleExecutionType.ExecuteEndPoint);
+
+        RuleFor(x => x.EndpointParameters)
+            .Must(BeJsonObject).WithMessage("EndpointParameters must be a JSON object")
+            .When(x => !string.IsNullOrWhiteSpace(x.EndpointParameters));
+
+        RuleFor(x => x.EndpointUrl).MaximumLength(2048);
+        RuleFor(x => x.EndpointBody).MaximumLength(100000);
 
         RuleFor(x => x.ScheduleConfig)
             .NotNull().WithMessage("ScheduleConfig is required")
@@ -37,6 +63,19 @@ public class CreateOrUpdateScheduleEventValidator : AbstractValidator<CreateOrUp
         if (string.IsNullOrEmpty(url)) return true;
         return Uri.TryCreate(url, UriKind.Absolute, out var uriResult) &&
                (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
+    }
+
+    private static bool BeJsonObject(string? value)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(value!);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 }
 
