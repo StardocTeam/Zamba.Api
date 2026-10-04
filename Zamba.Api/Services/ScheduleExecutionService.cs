@@ -220,16 +220,22 @@ public sealed class ScheduleExecutionService : IScheduleExecutionService
 
     private static bool IsReadOnlySelect(string query)
     {
-        if (string.IsNullOrWhiteSpace(query)
-            || !Regex.IsMatch(query, @"^\s*SELECT\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || query.Contains(';')
-            || query.Contains("--", StringComparison.Ordinal)
-            || query.Contains("/*", StringComparison.Ordinal)
-            || query.Contains("*/", StringComparison.Ordinal))
+        var normalizedQuery = query.Trim();
+        if (normalizedQuery.EndsWith(';'))
+        {
+            normalizedQuery = normalizedQuery[..^1].TrimEnd();
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedQuery)
+            || !Regex.IsMatch(normalizedQuery, @"^SELECT\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || normalizedQuery.Contains(';')
+            || normalizedQuery.Contains("--", StringComparison.Ordinal)
+            || normalizedQuery.Contains("/*", StringComparison.Ordinal)
+            || normalizedQuery.Contains("*/", StringComparison.Ordinal))
         {
             return false;
         }
 
-        return !ForbiddenSql.IsMatch(query);
+        return !ForbiddenSql.IsMatch(normalizedQuery);
     }
 }

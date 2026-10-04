@@ -574,8 +574,12 @@ public class ScheduleEventsController : ControllerBase
             FinishedAt = log.FinishedAt,
             Status = log.Status,
             HttpStatusCode = log.HttpStatusCode,
-            ResponseBody = log.ResponseBody,
-            ErrorMessage = log.ErrorMessage,
+            ResponseBody = log.ResponseBody is { Length: > 4000 } responseBody
+                ? responseBody[..4000]
+                : log.ResponseBody,
+            ErrorMessage = log.ErrorMessage is { Length: > 2000 } errorMessage
+                ? errorMessage[..2000]
+                : log.ErrorMessage,
             DurationMs = log.DurationMs,
             RetryCount = log.RetryCount
         };
