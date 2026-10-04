@@ -34,6 +34,8 @@ public class ZambaDbContext : DbContext
     /// </summary>
     public DbSet<Models.ScheduleExecutionLog> ScheduleExecutionLogs { get; set; }
 
+    public DbSet<Models.ScheduleWorkerStatus> ScheduleWorkerStatuses { get; set; }
+
     public DbSet<Models.CopilotRun> CopilotRuns { get; set; }
 
     public DbSet<Models.CopilotRunStep> CopilotRunSteps { get; set; }
@@ -157,6 +159,15 @@ public class ZambaDbContext : DbContext
             entity.HasIndex(e => e.ScheduledAt);
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => new { e.ScheduleEventId, e.ScheduledAt });
+        });
+
+        modelBuilder.Entity<Models.ScheduleWorkerStatus>(entity =>
+        {
+            entity.HasKey(status => status.WorkerInstanceId);
+            entity.Property(status => status.WorkerInstanceId).HasMaxLength(128);
+            entity.Property(status => status.HostName).HasMaxLength(255).IsRequired();
+            entity.Property(status => status.LastError).HasMaxLength(2000);
+            entity.HasIndex(status => status.LastHeartbeatAtUtc);
         });
 
         modelBuilder.Entity<Models.CopilotRun>(entity =>

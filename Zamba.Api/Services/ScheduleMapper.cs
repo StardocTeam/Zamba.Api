@@ -86,6 +86,7 @@ public class ScheduleMapper : IScheduleMapper
         {
             Id = log.Id,
             ScheduleEventId = log.ScheduleEventId,
+            ScheduleEventName = log.ScheduleEvent?.Name,
             ScheduledAt = log.ScheduledAt,
             StartedAt = log.StartedAt,
             FinishedAt = log.FinishedAt,

@@ -499,7 +499,9 @@ public class ScheduleEventsController : ControllerBase
         pageNumber = Math.Max(1, pageNumber);
         pageSize = Math.Min(100, Math.Max(1, pageSize));
 
-        var query = _dbContext.ScheduleExecutionLogs.AsQueryable();
+        var query = _dbContext.ScheduleExecutionLogs
+            .Include(log => log.ScheduleEvent)
+            .AsQueryable();
 
         // Apply filters
         if (scheduleEventId.HasValue)
@@ -538,6 +540,145 @@ public class ScheduleEventsController : ControllerBase
         };
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Returns schedule execution metrics for the monitoring dashboard.
+    /// </summary>
+    [HttpGet("dashboard")]
+    [ProducesResponseType(typeof(ScheduleDashboardDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ScheduleDashboardDto>> GetDashboard(
+        [FromQuery] int days = 7,
+        CancellationToken cancellationToken = default)
+    {
+        days = Math.Clamp(days, 1, 30);
+        var toDate = DateTime.UtcNow;
+        var fromDate = toDate.Date.AddDays(-(days - 1));
+        var logs = _dbContext.ScheduleExecutionLogs
+            .Where(log => log.ScheduledAt >= fromDate && log.ScheduledAt <= toDate);
+
+        var countsByStatus = await logs
+            .GroupBy(log => log.Status)
+            .Select(group => new { Status = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.Status, item => item.Count, cancellationToken);
+
+        var trendRows = await logs
+            .GroupBy(log => new { Date = log.ScheduledAt.Date, log.Status })
+            .Select(group => new { group.Key.Date, group.Key.Status, Count = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        var trend = Enumerable.Range(0, days)
+            .Select(offset => fromDate.Date.AddDays(offset))
+            .Select(date =>
+            {
+                var rows = trendRows.Where(row => row.Date == date).ToList();
+                var counts = rows.ToDictionary(row => row.Status, row => row.Count);
+                return new ScheduleDashboardDayDto
+                {
+                    Date = date,
+                    Success = counts.GetValueOrDefault(ExecutionStatus.Success),
+                    Failed = counts.GetValueOrDefault(ExecutionStatus.Failed),
+                    Running = counts.GetValueOrDefault(ExecutionStatus.Running),
+                    TimedOut = counts.GetValueOrDefault(ExecutionStatus.Timeout),
+                    Skipped = counts.GetValueOrDefault(ExecutionStatus.Skipped)
+                };
+            }).ToList();
+
+        var topEvents = await logs
+            .GroupBy(log => new { log.ScheduleEventId, Name = log.ScheduleEvent!.Name })
+            .Select(group => new ScheduleDashboardEventDto
+            {
+                ScheduleEventId = group.Key.ScheduleEventId,
+                Name = group.Key.Name,
+                Executions = group.Count(),
+                Failures = group.Count(log => log.Status == ExecutionStatus.Failed || log.Status == ExecutionStatus.Timeout),
+                AverageDurationMs = group.Where(log => log.DurationMs.HasValue)
+                    .Average(log => (double?)log.DurationMs)
+            })
+            .OrderByDescending(item => item.Executions)
+            .Take(5)
+            .ToListAsync(cancellationToken);
+
+        var worker = await _dbContext.ScheduleWorkerStatuses
+            .OrderByDescending(status => status.LastHeartbeatAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        var activeExecutions = await _dbContext.ScheduleExecutionLogs
+            .Include(log => log.ScheduleEvent)
+            .Where(log => log.Status == ExecutionStatus.Running)
+            .OrderByDescending(log => log.StartedAt)
+            .Take(8)
+            .ToListAsync(cancellationToken);
+
+        var totalExecutions = countsByStatus.Values.Sum();
+        var completedExecutions = countsByStatus.GetValueOrDefault(ExecutionStatus.Success)
+            + countsByStatus.GetValueOrDefault(ExecutionStatus.Failed)
+            + countsByStatus.GetValueOrDefault(ExecutionStatus.Timeout);
+        var averageDuration = await logs
+            .Where(log => log.DurationMs.HasValue)
+            .AverageAsync(log => (double?)log.DurationMs, cancellationToken);
+
+        return Ok(new ScheduleDashboardDto
+        {
+            FromDate = fromDate,
+            ToDate = toDate,
+            TotalEvents = await _dbContext.ScheduleEvents.CountAsync(cancellationToken),
+            ActiveEvents = await _dbContext.ScheduleEvents.CountAsync(item => item.IsActive, cancellationToken),
+            TotalExecutions = totalExecutions,
+            RunningExecutions = countsByStatus.GetValueOrDefault(ExecutionStatus.Running),
+            SuccessfulExecutions = countsByStatus.GetValueOrDefault(ExecutionStatus.Success),
+            FailedExecutions = countsByStatus.GetValueOrDefault(ExecutionStatus.Failed),
+            TimedOutExecutions = countsByStatus.GetValueOrDefault(ExecutionStatus.Timeout),
+            SkippedExecutions = countsByStatus.GetValueOrDefault(ExecutionStatus.Skipped),
+            SuccessRate = completedExecutions == 0
+                ? 0
+                : countsByStatus.GetValueOrDefault(ExecutionStatus.Success) * 100d / completedExecutions,
+            AverageDurationMs = averageDuration,
+            Trend = trend,
+            TopEvents = topEvents,
+            ActiveExecutions = activeExecutions.Select(_mapper.MapLogToDto).ToList(),
+            Worker = worker == null ? null : new ScheduleWorkerStatusDto
+            {
+                WorkerInstanceId = worker.WorkerInstanceId,
+                HostName = worker.HostName,
+                StartedAtUtc = worker.StartedAtUtc,
+                LastHeartbeatAtUtc = worker.LastHeartbeatAtUtc,
+                LastSyncAtUtc = worker.LastSyncAtUtc,
+                RegisteredJobCount = worker.RegisteredJobCount,
+                ActiveJobCount = worker.ActiveJobCount,
+                LastError = worker.LastError,
+                IsOnline = worker.LastHeartbeatAtUtc >= toDate.AddSeconds(-45)
+            }
+        });
+    }
+
+    /// <summary>
+    /// Receives a worker heartbeat and current Quartz job counts.
+    /// </summary>
+    [HttpPost("worker-status")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> ReportWorkerStatus(
+        [FromBody] ScheduleWorkerHeartbeatDto heartbeat,
+        CancellationToken cancellationToken)
+    {
+        var status = await _dbContext.ScheduleWorkerStatuses
+            .FindAsync(new object[] { heartbeat.WorkerInstanceId }, cancellationToken);
+
+        if (status == null)
+        {
+            status = new ScheduleWorkerStatus { WorkerInstanceId = heartbeat.WorkerInstanceId, HostName = heartbeat.HostName };
+            _dbContext.ScheduleWorkerStatuses.Add(status);
+        }
+
+        status.HostName = heartbeat.HostName;
+        status.StartedAtUtc = heartbeat.StartedAtUtc;
+        status.LastHeartbeatAtUtc = DateTime.UtcNow;
+        status.LastSyncAtUtc = heartbeat.LastSyncAtUtc;
+        status.RegisteredJobCount = Math.Max(0, heartbeat.RegisteredJobCount);
+        status.ActiveJobCount = Math.Max(0, heartbeat.ActiveJobCount);
+        status.LastError = heartbeat.LastError is { Length: > 2000 } error ? error[..2000] : heartbeat.LastError;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return NoContent();
     }
 
     /// <summary>
@@ -590,6 +731,47 @@ public class ScheduleEventsController : ControllerBase
         _logger.LogInformation("Execution log created successfully with ID: {LogId}", executionLog.Id);
 
         return CreatedAtAction(nameof(GetScheduleEvent), new { id = executionLog.ScheduleEventId }, _mapper.MapLogToDto(executionLog));
+    }
+
+    /// <summary>
+    /// Updates a running execution with its final result.
+    /// </summary>
+    [HttpPut("logs/{id:int}")]
+    [ProducesResponseType(typeof(ScheduleExecutionLogDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ScheduleExecutionLogDto>> UpdateExecutionLog(
+        int id,
+        [FromBody] ScheduleExecutionLogDto log,
+        CancellationToken cancellationToken)
+    {
+        var executionLog = await _dbContext.ScheduleExecutionLogs
+            .Include(item => item.ScheduleEvent)
+            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (executionLog == null || executionLog.ScheduleEventId != log.ScheduleEventId)
+        {
+            return NotFound(new ErrorResponseDto
+            {
+                Code = "EXECUTION_LOG_NOT_FOUND",
+                Message = $"Execution log with ID {id} was not found."
+            });
+        }
+
+        executionLog.ScheduledAt = log.ScheduledAt;
+        executionLog.StartedAt = log.StartedAt;
+        executionLog.FinishedAt = log.FinishedAt;
+        executionLog.Status = log.Status;
+        executionLog.HttpStatusCode = log.HttpStatusCode;
+        executionLog.ResponseBody = log.ResponseBody is { Length: > 4000 } responseBody
+            ? responseBody[..4000]
+            : log.ResponseBody;
+        executionLog.ErrorMessage = log.ErrorMessage is { Length: > 2000 } errorMessage
+            ? errorMessage[..2000]
+            : log.ErrorMessage;
+        executionLog.DurationMs = log.DurationMs;
+        executionLog.RetryCount = log.RetryCount;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Ok(_mapper.MapLogToDto(executionLog));
     }
 
     /// <summary>

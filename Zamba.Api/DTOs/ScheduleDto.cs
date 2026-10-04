@@ -221,6 +221,8 @@ public class ScheduleExecutionLogDto
     /// </summary>
     public int ScheduleEventId { get; set; }
 
+    public string? ScheduleEventName { get; set; }
+
     /// <summary>
     /// When the execution was scheduled.
     /// </summary>

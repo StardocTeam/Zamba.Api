@@ -277,16 +277,16 @@ namespace Zamba.Api.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
-                    b.Property<string>("EndpointOverride")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
                     b.Property<string>("EndpointBody")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("EndpointMethod")
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("EndpointOverride")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("EndpointParameters")
                         .HasColumnType("nvarchar(max)");
@@ -295,10 +295,10 @@ namespace Zamba.Api.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("nvarchar(2048)");
 
-                    b.Property<Zamba.Api.Models.ScheduleExecutionType>("ExecutionType")
+                    b.Property<int>("ExecutionType")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
-                        .HasDefaultValue(Zamba.Api.Models.ScheduleExecutionType.ExecuteRule);
+                        .HasDefaultValue(0);
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -390,6 +390,43 @@ namespace Zamba.Api.Migrations
                     b.HasIndex("ScheduleEventId", "ScheduledAt");
 
                     b.ToTable("ScheduleExecutionLogs");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.ScheduleWorkerStatus", b =>
+                {
+                    b.Property<string>("WorkerInstanceId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("ActiveJobCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("HostName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("LastHeartbeatAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastSyncAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("RegisteredJobCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("WorkerInstanceId");
+
+                    b.HasIndex("LastHeartbeatAtUtc");
+
+                    b.ToTable("ScheduleWorkerStatuses");
                 });
 
             modelBuilder.Entity("Zamba.Api.Models.CopilotFeedback", b =>
