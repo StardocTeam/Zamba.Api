@@ -26,6 +26,9 @@ public class CreateOrUpdateScheduleEventValidator : AbstractValidator<CreateOrUp
         RuleFor(x => x.Description)
             .MaximumLength(1000).WithMessage("Description must not exceed 1000 characters");
 
+        RuleFor(x => x.ExpectedResult)
+            .MaximumLength(100000).WithMessage("ExpectedResult must not exceed 100000 characters");
+
         RuleFor(x => x.EndpointOverride)
             .MaximumLength(500).WithMessage("EndpointOverride must not exceed 500 characters")
             .Must(BeValidUrl).When(x => !string.IsNullOrEmpty(x.EndpointOverride))

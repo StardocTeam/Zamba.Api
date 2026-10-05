@@ -18,6 +18,11 @@ public class CreateOrUpdateScheduleEventDto
     public string? Description { get; set; }
 
     /// <summary>
+    /// Optional response body or query result expected from this schedule action.
+    /// </summary>
+    public string? ExpectedResult { get; set; }
+
+    /// <summary>
     /// The rule ID or identifier to be executed (required).
     /// </summary>
     public string RuleId { get; set; } = "";
@@ -134,6 +139,8 @@ public class ScheduleEventDto
     /// </summary>
     public string? Description { get; set; }
 
+    public string? ExpectedResult { get; set; }
+
     /// <summary>
     /// Rule identifier.
     /// </summary>
@@ -196,6 +203,7 @@ public class ScheduleExecutionResultDto
     public string? ResponseBody { get; set; }
     public string? ErrorMessage { get; set; }
     public long DurationMs { get; set; }
+    public string? Result { get; set; }
 }
 
 /// <summary>
@@ -242,6 +250,11 @@ public class ScheduleExecutionLogDto
     /// Execution status.
     /// </summary>
     public ExecutionStatus Status { get; set; }
+
+    /// <summary>
+    /// Whether the response matched the configured expected result: success or fail.
+    /// </summary>
+    public string? Result { get; set; }
 
     /// <summary>
     /// HTTP status code from the executed endpoint.

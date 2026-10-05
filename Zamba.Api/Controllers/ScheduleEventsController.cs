@@ -92,6 +92,7 @@ public class ScheduleEventsController : ControllerBase
         {
             Name = dto.Name,
             Description = dto.Description,
+            ExpectedResult = dto.ExpectedResult,
             RuleId = dto.RuleId,
             ExecutionType = dto.ExecutionType,
             EndpointOverride = dto.EndpointOverride,
@@ -317,16 +318,28 @@ public class ScheduleEventsController : ControllerBase
         // Update event properties
         scheduleEvent.Name = dto.Name;
         scheduleEvent.Description = dto.Description;
+        scheduleEvent.ExpectedResult = dto.ExpectedResult;
         scheduleEvent.RuleId = dto.RuleId;
+        scheduleEvent.ExecutionType = dto.ExecutionType;
         scheduleEvent.EndpointOverride = dto.EndpointOverride;
+        scheduleEvent.Query = dto.Query;
+        scheduleEvent.EndpointUrl = dto.EndpointUrl;
+        scheduleEvent.EndpointMethod = dto.EndpointMethod;
+        scheduleEvent.EndpointParameters = dto.EndpointParameters;
+        scheduleEvent.EndpointBody = dto.EndpointBody;
         scheduleEvent.IsActive = dto.IsActive;
         scheduleEvent.UpdatedAt = DateTime.UtcNow;
         scheduleEvent.UpdatedBy = "API"; // TODO: Set to actual user when authentication is implemented
 
         // Update config
-        if (scheduleEvent.ScheduleConfig != null)
+        var updatedConfig = _mapper.MapConfigToEntity(dto.ScheduleConfig, id);
+        if (scheduleEvent.ScheduleConfig == null)
         {
-            var updatedConfig = _mapper.MapConfigToEntity(dto.ScheduleConfig, id);
+            scheduleEvent.ScheduleConfig = updatedConfig;
+            _dbContext.ScheduleConfigs.Add(updatedConfig);
+        }
+        else
+        {
             scheduleEvent.ScheduleConfig.RecurrenceType = updatedConfig.RecurrenceType;
             scheduleEvent.ScheduleConfig.IntervalValue = updatedConfig.IntervalValue;
             scheduleEvent.ScheduleConfig.DaysOfWeek = updatedConfig.DaysOfWeek;
@@ -714,6 +727,7 @@ public class ScheduleEventsController : ControllerBase
             StartedAt = log.StartedAt,
             FinishedAt = log.FinishedAt,
             Status = log.Status,
+            Result = log.Result,
             HttpStatusCode = log.HttpStatusCode,
             ResponseBody = log.ResponseBody is { Length: > 4000 } responseBody
                 ? responseBody[..4000]
@@ -760,6 +774,7 @@ public class ScheduleEventsController : ControllerBase
         executionLog.StartedAt = log.StartedAt;
         executionLog.FinishedAt = log.FinishedAt;
         executionLog.Status = log.Status;
+        executionLog.Result = log.Result;
         executionLog.HttpStatusCode = log.HttpStatusCode;
         executionLog.ResponseBody = log.ResponseBody is { Length: > 4000 } responseBody
             ? responseBody[..4000]

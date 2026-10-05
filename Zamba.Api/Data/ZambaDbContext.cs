@@ -68,6 +68,8 @@ public class ZambaDbContext : DbContext
             entity.Property(e => e.Description)
                 .HasMaxLength(1000);
 
+            entity.Property(e => e.ExpectedResult);
+
             entity.Property(e => e.EndpointOverride)
                 .HasMaxLength(500);
 
@@ -141,6 +143,9 @@ public class ZambaDbContext : DbContext
 
             entity.Property(e => e.ResponseBody)
                 .HasMaxLength(4000); // Truncate to 4000 chars to avoid excessive storage
+
+            entity.Property(e => e.Result)
+                .HasMaxLength(20);
 
             entity.Property(e => e.ErrorMessage)
                 .HasMaxLength(2000);

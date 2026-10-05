@@ -300,6 +300,9 @@ namespace Zamba.Api.Migrations
                         .HasColumnType("int")
                         .HasDefaultValue(0);
 
+                    b.Property<string>("ExpectedResult")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -361,6 +364,10 @@ namespace Zamba.Api.Migrations
                     b.Property<string>("ResponseBody")
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Result")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<int>("RetryCount")
                         .HasColumnType("int");

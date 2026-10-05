@@ -31,6 +31,11 @@ public class ScheduleEvent
     public string? Description { get; set; }
 
     /// <summary>
+    /// Optional response body or query result expected from this schedule action.
+    /// </summary>
+    public string? ExpectedResult { get; set; }
+
+    /// <summary>
     /// The rule ID or identifier that will be executed by the scheduler.
     /// This corresponds to a rule in the business logic.
     /// </summary>

@@ -26,6 +26,8 @@ public interface IScheduleExecutionService
 public sealed class ScheduleExecutionService : IScheduleExecutionService
 {
     private const int MaxQueryRows = 500;
+    private const string ResultSuccess = "success";
+    private const string ResultFail = "fail";
     private static readonly Regex ForbiddenSql = new(
         @"\b(INTO|EXEC|EXECUTE|OPENROWSET|OPENQUERY|OPENDATASOURCE|BULK|WAITFOR|INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|DENY|DBCC|BACKUP|RESTORE)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -51,22 +53,48 @@ public sealed class ScheduleExecutionService : IScheduleExecutionService
     {
         try
         {
-            return schedule.ExecutionType switch
+            var result = schedule.ExecutionType switch
             {
                 ScheduleExecutionType.ExecuteRule => await ExecuteRuleAsync(schedule, apiBaseUri, cancellationToken),
                 ScheduleExecutionType.ExecuteQuery => await ExecuteQueryAsync(schedule.Query ?? "", cancellationToken),
                 ScheduleExecutionType.ExecuteEndPoint => await ExecuteEndpointAsync(schedule, cancellationToken),
                 _ => new ScheduleExecutionResultDto { StatusCode = 400, ErrorMessage = "Unknown schedule execution type." }
             };
+
+            if (string.IsNullOrWhiteSpace(schedule.ExpectedResult))
+            {
+                result.Result = ResultSuccess;
+            }
+            else if (ResponseMatches(schedule.ExpectedResult, result.ResponseBody))
+            {
+                result.Result = ResultSuccess;
+            }
+            else
+            {
+                result.Result = ResultFail;
+                result.ErrorMessage ??= "The response did not match the configured expected result.";
+            }
+
+            return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return new ScheduleExecutionResultDto { StatusCode = 408, ErrorMessage = "Execution timed out or was cancelled." };
+            return new ScheduleExecutionResultDto
+            {
+                StatusCode = 408,
+                ErrorMessage = "Execution timed out or was cancelled.",
+                Result = string.IsNullOrWhiteSpace(schedule.ExpectedResult) ? ResultSuccess : ResultFail
+            };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Schedule action execution failed for type {ExecutionType}", schedule.ExecutionType);
-            return new ScheduleExecutionResultDto { StatusCode = 500, ErrorMessage = ex.Message };
+            return new ScheduleExecutionResultDto
+            {
+                StatusCode = 500,
+                ErrorMessage = ex.Message,
+                Result = string.IsNullOrWhiteSpace(schedule.ExpectedResult) ? ResultSuccess : ResultFail
+            };
         }
     }
 
@@ -237,5 +265,75 @@ public sealed class ScheduleExecutionService : IScheduleExecutionService
         }
 
         return !ForbiddenSql.IsMatch(normalizedQuery);
+    }
+
+    private static bool ResponseMatches(string expected, string? actual)
+    {
+        if (actual == null)
+        {
+            return false;
+        }
+
+        var expectedText = expected.Trim();
+        var actualText = actual.Trim();
+        try
+        {
+            using var expectedJson = JsonDocument.Parse(expectedText);
+            using var actualJson = JsonDocument.Parse(actualText);
+            return JsonValuesMatch(expectedJson.RootElement, actualJson.RootElement);
+        }
+        catch (JsonException)
+        {
+            return string.Equals(expectedText, actualText, StringComparison.Ordinal);
+        }
+    }
+
+    private static bool JsonValuesMatch(JsonElement expected, JsonElement actual)
+    {
+        if (expected.ValueKind != actual.ValueKind)
+        {
+            return false;
+        }
+
+        return expected.ValueKind switch
+        {
+            JsonValueKind.Object => JsonObjectsMatch(expected, actual),
+            JsonValueKind.Array => JsonArraysMatch(expected, actual),
+            JsonValueKind.String => expected.GetString() == actual.GetString(),
+            JsonValueKind.Number => JsonNumbersMatch(expected, actual),
+            JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null => true,
+            _ => false
+        };
+    }
+
+    private static bool JsonObjectsMatch(JsonElement expected, JsonElement actual)
+    {
+        var expectedProperties = expected.EnumerateObject().ToArray();
+        var actualProperties = actual.EnumerateObject().ToArray();
+        return expectedProperties.Length == actualProperties.Length
+            && expectedProperties.All(property =>
+                actual.TryGetProperty(property.Name, out var actualValue)
+                && JsonValuesMatch(property.Value, actualValue));
+    }
+
+    private static bool JsonArraysMatch(JsonElement expected, JsonElement actual)
+    {
+        var expectedItems = expected.EnumerateArray().ToArray();
+        var actualItems = actual.EnumerateArray().ToArray();
+        return expectedItems.Length == actualItems.Length
+            && expectedItems.Zip(actualItems).All(pair => JsonValuesMatch(pair.First, pair.Second));
+    }
+
+    private static bool JsonNumbersMatch(JsonElement expected, JsonElement actual)
+    {
+        if (expected.TryGetDecimal(out var expectedNumber) && actual.TryGetDecimal(out var actualNumber))
+        {
+            return expectedNumber == actualNumber;
+        }
+
+        var expectedDouble = expected.GetDouble();
+        var actualDouble = actual.GetDouble();
+        var tolerance = Math.Max(1d, Math.Abs(expectedDouble)) * 1e-12;
+        return Math.Abs(expectedDouble - actualDouble) <= tolerance;
     }
 }

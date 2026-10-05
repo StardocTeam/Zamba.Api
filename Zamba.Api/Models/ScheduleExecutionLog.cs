@@ -58,6 +58,11 @@ public class ScheduleExecutionLog
     public ExecutionStatus Status { get; set; }
 
     /// <summary>
+    /// Whether the response matched the configured expected result: success or fail.
+    /// </summary>
+    public string? Result { get; set; }
+
+    /// <summary>
     /// The HTTP status code returned by the executed endpoint (if applicable).
     /// </summary>
     public int? HttpStatusCode { get; set; }
