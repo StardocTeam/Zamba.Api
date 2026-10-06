@@ -566,7 +566,10 @@ public class ScheduleEventsController : ControllerBase
     {
         days = Math.Clamp(days, 1, 30);
         var toDate = DateTime.UtcNow;
-        var fromDate = toDate.Date.AddDays(-(days - 1));
+        var hourlyRange = days == 1;
+        var currentHour = new DateTime(toDate.Year, toDate.Month, toDate.Day, toDate.Hour, 0, 0, DateTimeKind.Utc);
+        var firstHour = currentHour.AddHours(-23);
+        var fromDate = hourlyRange ? firstHour : toDate.Date.AddDays(-(days - 1));
         var logs = _dbContext.ScheduleExecutionLogs
             .Where(log => log.ScheduledAt >= fromDate && log.ScheduledAt <= toDate);
 
@@ -576,19 +579,27 @@ public class ScheduleEventsController : ControllerBase
             .ToDictionaryAsync(item => item.Status, item => item.Count, cancellationToken);
 
         var trendRows = await logs
-            .GroupBy(log => new { Date = log.ScheduledAt.Date, log.Status })
-            .Select(group => new { group.Key.Date, group.Key.Status, Count = group.Count() })
+            .GroupBy(log => new
+            {
+                Date = log.ScheduledAt.Date,
+                Hour = hourlyRange ? log.ScheduledAt.Hour : 0,
+                log.Status
+            })
+            .Select(group => new { group.Key.Date, group.Key.Hour, group.Key.Status, Count = group.Count() })
             .ToListAsync(cancellationToken);
 
-        var trend = Enumerable.Range(0, days)
-            .Select(offset => fromDate.Date.AddDays(offset))
+        var trendBuckets = hourlyRange
+            ? Enumerable.Range(0, 24).Select(offset => firstHour.AddHours(offset))
+            : Enumerable.Range(0, days).Select(offset => fromDate.Date.AddDays(offset));
+        var trend = trendBuckets
             .Select(date =>
             {
-                var rows = trendRows.Where(row => row.Date == date).ToList();
+                var hour = hourlyRange ? date.Hour : 0;
+                var rows = trendRows.Where(row => row.Date == date.Date && row.Hour == hour).ToList();
                 var counts = rows.ToDictionary(row => row.Status, row => row.Count);
                 return new ScheduleDashboardDayDto
                 {
-                    Date = date,
+                    Date = hourlyRange ? date : date.Date,
                     Success = counts.GetValueOrDefault(ExecutionStatus.Success),
                     Failed = counts.GetValueOrDefault(ExecutionStatus.Failed),
                     Running = counts.GetValueOrDefault(ExecutionStatus.Running),
