@@ -57,6 +57,16 @@ public class CreateOrUpdateScheduleEventDto
     /// </summary>
     public bool IsActive { get; set; } = true;
 
+    public string? NotificationEmail { get; set; }
+
+    public bool NotifyOnSuccess { get; set; }
+
+    public bool NotifyOnFailure { get; set; }
+
+    public bool NotifySlackOnSuccess { get; set; }
+
+    public bool NotifySlackOnFailure { get; set; }
+
     /// <summary>
     /// Configuration for the schedule recurrence (required).
     /// </summary>
@@ -167,6 +177,16 @@ public class ScheduleEventDto
     /// Whether the event is active.
     /// </summary>
     public bool IsActive { get; set; }
+
+    public string? NotificationEmail { get; set; }
+
+    public bool NotifyOnSuccess { get; set; }
+
+    public bool NotifyOnFailure { get; set; }
+
+    public bool NotifySlackOnSuccess { get; set; }
+
+    public bool NotifySlackOnFailure { get; set; }
 
     /// <summary>
     /// Creation timestamp.

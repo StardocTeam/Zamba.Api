@@ -81,6 +81,16 @@ public class ScheduleEvent
     /// </summary>
     public bool IsActive { get; set; } = true;
 
+    public string? NotificationEmail { get; set; }
+
+    public bool NotifyOnSuccess { get; set; }
+
+    public bool NotifyOnFailure { get; set; }
+
+    public bool NotifySlackOnSuccess { get; set; }
+
+    public bool NotifySlackOnFailure { get; set; }
+
     /// <summary>
     /// Date and time when this schedule event was created.
     /// </summary>

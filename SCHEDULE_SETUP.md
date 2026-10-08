@@ -97,6 +97,61 @@ To create new migrations:
 dotnet ef migrations add MigrationName
 ```
 
+## Schedule email notifications with Google Workspace SMTP relay
+
+`Zamba.Api` can send schedule notifications through Google Workspace without SMTP username/password authentication. The relay trusts the API server's fixed public outbound IP, and the connection uses STARTTLS over port 587.
+
+### Configure Google Workspace
+
+1. Confirm that the API server has a static public outbound IP address. If it runs behind NAT or in a cloud, use the NAT gateway's outbound IP, not the server's private or inbound address.
+2. Sign in to [Google Admin Console](https://admin.google.com/) with an administrator that has Gmail settings privileges.
+3. Open **Apps > Google Workspace > Gmail > Routing**, then find **SMTP relay service** and choose **Configure** or **Add another rule**.
+4. Give the rule a name, such as `Zamba API`.
+5. Under **Allowed senders**, select **Only addresses in my domains**. Set `FromAddress` below to an address in the Workspace domain. If it is a mailbox user, **Only registered Apps users in my domains** is also suitable.
+6. Under **Authentication**, select **Only accept mail from the specified IP addresses** and add the API server's static public outbound IP. Do not enable **Require SMTP Authentication** for this IP-based setup.
+7. Under **Encryption**, select **Require TLS encryption**, then save the rule. Google notes that changes can take up to 24 hours to propagate.
+8. Allow outbound TCP traffic from the API server to `smtp-relay.gmail.com` on port `587`.
+
+### Configure Zamba.Api
+
+Set the `ScheduleEmail` section in `appsettings.json` or override it with environment variables in production:
+
+```json
+"ScheduleEmail": {
+  "Provider": "GoogleWorkspaceRelay",
+  "Username": "",
+  "Password": "",
+  "FromAddress": "avisos@tu-dominio.com",
+  "FromName": "Zamba Schedule",
+  "Port": 587
+}
+```
+
+`Username` and `Password` are intentionally blank for IP-based relay authentication. Use the actual Workspace sender address in place of `avisos@tu-dominio.com`. For environment-based configuration, use `ScheduleEmail__FromAddress`, `ScheduleEmail__Provider`, and the corresponding double-underscore setting names.
+
+After saving the rule and configuration, trigger a schedule event that has email notification enabled and verify delivery. Ensure the domain's SPF, DKIM, and DMARC records are set up for Google Workspace.
+
+## Schedule Slack notifications
+
+Zamba.Api sends Slack notifications through SlackNet, a .NET SDK client for Slack's Web API `chat.postMessage` method. It authenticates with a bot token and posts to the configured channel ID.
+
+1. In Slack, open [Your Apps](https://api.slack.com/apps) and create or select an app for the workspace.
+2. Under **OAuth & Permissions > Bot Token Scopes**, add `chat:write` and save the change.
+3. Install or reinstall the app in the workspace and copy its **Bot User OAuth Token** (`xoxb-...`). Keep it secret.
+4. Invite the bot to the destination channel with `/invite @YourApp`.
+5. Copy the channel ID from the channel details (it usually begins with `C`; private channels can begin with `G`).
+6. Set `Slack:BotToken` and `Slack:ChannelId` in `appsettings.json`, or use `Slack__BotToken` and `Slack__ChannelId` environment variables in production.
+7. Apply the pending EF migration, restart Zamba.Api, and enable Slack success/failure notifications on the desired schedule events.
+
+```json
+"Slack": {
+  "BotToken": "xoxb-REPLACE-WITH-SECRET",
+  "ChannelId": "C0123456789"
+}
+```
+
+The message includes the event configuration and execution result. Large payloads are truncated to fit Slack's message size limit. Keep bot tokens out of source control and rotate/reinstall the app if a token is exposed. Slack may require `chat:write.public` if the bot must post to public channels it has not joined; inviting it to the target channel is preferable.
+
 ## Switching Database Providers
 
 ### From SQL Server to Oracle

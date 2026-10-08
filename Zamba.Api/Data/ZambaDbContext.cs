@@ -70,6 +70,21 @@ public class ZambaDbContext : DbContext
 
             entity.Property(e => e.ExpectedResult);
 
+            entity.Property(e => e.NotificationEmail)
+                .HasMaxLength(320);
+
+            entity.Property(e => e.NotifyOnSuccess)
+                .HasDefaultValue(false);
+
+            entity.Property(e => e.NotifyOnFailure)
+                .HasDefaultValue(false);
+
+            entity.Property(e => e.NotifySlackOnSuccess)
+                .HasDefaultValue(false);
+
+            entity.Property(e => e.NotifySlackOnFailure)
+                .HasDefaultValue(false);
+
             entity.Property(e => e.EndpointOverride)
                 .HasMaxLength(500);
 

@@ -19,6 +19,10 @@ builder.Services.AddOptions<Zamba.Api.Configuration.FileProcessingOptions>()
     .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.FileProcessingOptions.SectionName));
 builder.Services.AddOptions<Zamba.Api.Configuration.PdfOcrOptions>()
     .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.PdfOcrOptions.SectionName));
+builder.Services.AddOptions<Zamba.Api.Configuration.ScheduleEmailOptions>()
+    .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.ScheduleEmailOptions.SectionName));
+builder.Services.AddOptions<Zamba.Api.Configuration.SlackNotificationOptions>()
+    .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.SlackNotificationOptions.SectionName));
 
 // Add Entity Framework Core with SQL Server
 var connectionString = builder.Configuration.GetConnectionString("ZambaConnectionDEV") 
@@ -34,6 +38,8 @@ builder.Services.AddScoped<IValidator<Zamba.Api.DTOs.ScheduleConfigDto>, Zamba.A
 // Add Schedule services
 builder.Services.AddScoped<Zamba.Api.Services.IScheduleMapper, Zamba.Api.Services.ScheduleMapper>();
 builder.Services.AddScoped<Zamba.Api.Services.IScheduleExecutionService, Zamba.Api.Services.ScheduleExecutionService>();
+builder.Services.AddScoped<Zamba.Api.Services.IScheduleEventNotificationService, Zamba.Api.Services.ScheduleEventNotificationService>();
+builder.Services.AddScoped<Zamba.Api.Services.ISlackScheduleNotificationService, Zamba.Api.Services.SlackScheduleNotificationService>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryService, Zamba.Api.Services.CopilotTelemetryService>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryQueryService, Zamba.Api.Services.CopilotTelemetryQueryService>();
 

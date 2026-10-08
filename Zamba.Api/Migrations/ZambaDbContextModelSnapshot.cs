@@ -311,6 +311,26 @@ namespace Zamba.Api.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("NotificationEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<bool>("NotifyOnFailure")
+                        .HasDefaultValue(false)
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("NotifyOnSuccess")
+                        .HasDefaultValue(false)
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("NotifySlackOnFailure")
+                        .HasDefaultValue(false)
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("NotifySlackOnSuccess")
+                        .HasDefaultValue(false)
+                        .HasColumnType("bit");
+
                     b.Property<string>("Query")
                         .HasColumnType("nvarchar(max)");
 

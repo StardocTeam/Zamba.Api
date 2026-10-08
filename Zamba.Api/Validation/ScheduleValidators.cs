@@ -56,6 +56,16 @@ public class CreateOrUpdateScheduleEventValidator : AbstractValidator<CreateOrUp
         RuleFor(x => x.EndpointUrl).MaximumLength(2048);
         RuleFor(x => x.EndpointBody).MaximumLength(100000);
 
+        RuleFor(x => x.NotificationEmail)
+            .MaximumLength(320)
+            .EmailAddress()
+            .When(x => !string.IsNullOrWhiteSpace(x.NotificationEmail));
+
+        RuleFor(x => x.NotificationEmail)
+            .NotEmpty()
+            .WithMessage("NotificationEmail is required when an email notification is enabled")
+            .When(x => x.NotifyOnSuccess || x.NotifyOnFailure);
+
         RuleFor(x => x.ScheduleConfig)
             .NotNull().WithMessage("ScheduleConfig is required")
             .SetValidator(new ScheduleConfigValidator());
