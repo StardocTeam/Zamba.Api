@@ -22,8 +22,6 @@ public class ScheduleEventsController : ControllerBase
     private readonly IValidator<ScheduleConfigDto> _configValidator;
     private readonly ILogger<ScheduleEventsController> _logger;
     private readonly IScheduleExecutionService _executionService;
-    private readonly IScheduleEventNotificationService _notificationService;
-    private readonly ISlackScheduleNotificationService _slackNotificationService;
 
     public ScheduleEventsController(
         ZambaDbContext dbContext,
@@ -31,8 +29,6 @@ public class ScheduleEventsController : ControllerBase
         IValidator<CreateOrUpdateScheduleEventDto> eventValidator,
         IValidator<ScheduleConfigDto> configValidator,
         IScheduleExecutionService executionService,
-        IScheduleEventNotificationService notificationService,
-        ISlackScheduleNotificationService slackNotificationService,
         ILogger<ScheduleEventsController> logger)
     {
         _dbContext = dbContext;
@@ -40,8 +36,6 @@ public class ScheduleEventsController : ControllerBase
         _eventValidator = eventValidator;
         _configValidator = configValidator;
         _executionService = executionService;
-        _notificationService = notificationService;
-        _slackNotificationService = slackNotificationService;
         _logger = logger;
     }
 
@@ -112,77 +106,6 @@ public class ScheduleEventsController : ControllerBase
         };
 
         return Ok(await _executionService.ExecuteAsync(request, GetApiBaseUri(), cancellationToken));
-    }
-
-    /// <summary>
-    /// Sends configured email and Slack notifications for an execution result.
-    /// </summary>
-    [HttpPost("{id}/notify")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> NotifyScheduleExecution(
-        int id,
-        [FromBody] ScheduleExecutionLogDto execution,
-        CancellationToken cancellationToken)
-    {
-        if (execution.ScheduleEventId != id)
-        {
-            return BadRequest(new ErrorResponseDto
-            {
-                Code = "SCHEDULE_EVENT_ID_MISMATCH",
-                Message = "The execution event ID does not match the route."
-            });
-        }
-
-        var scheduleEvent = await _dbContext.ScheduleEvents
-            .Include(schedule => schedule.ScheduleConfig)
-            .FirstOrDefaultAsync(schedule => schedule.Id == id, cancellationToken);
-
-        if (scheduleEvent == null)
-        {
-            return NotFound(new ErrorResponseDto
-            {
-                Code = "SCHEDULE_EVENT_NOT_FOUND",
-                Message = $"Schedule event with ID {id} not found."
-            });
-        }
-
-        var (shouldNotifyEmail, shouldNotifySlack) = execution.Status switch
-        {
-            ExecutionStatus.Success => (scheduleEvent.NotifyOnSuccess, scheduleEvent.NotifySlackOnSuccess),
-            ExecutionStatus.Failed or ExecutionStatus.Timeout => (scheduleEvent.NotifyOnFailure, scheduleEvent.NotifySlackOnFailure),
-            _ => (false, false)
-        };
-
-        shouldNotifyEmail &= !string.IsNullOrWhiteSpace(scheduleEvent.NotificationEmail);
-        if (!shouldNotifyEmail && !shouldNotifySlack)
-        {
-            return NoContent();
-        }
-
-        try
-        {
-            if (shouldNotifyEmail)
-            {
-                await _notificationService.SendAsync(scheduleEvent, execution, cancellationToken);
-            }
-
-            if (shouldNotifySlack)
-            {
-                await _slackNotificationService.SendAsync(scheduleEvent, execution, cancellationToken);
-            }
-
-            return NoContent();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Could not send one or more execution notifications for schedule event {EventId}", id);
-            return StatusCode(StatusCodes.Status502BadGateway, new ErrorResponseDto
-            {
-                Code = "SCHEDULE_NOTIFICATION_FAILED",
-                Message = "One or more schedule notifications could not be sent."
-            });
-        }
     }
 
     /// <summary>
@@ -405,11 +328,6 @@ public class ScheduleEventsController : ControllerBase
         scheduleEvent.EndpointParameters = dto.EndpointParameters;
         scheduleEvent.EndpointBody = dto.EndpointBody;
         scheduleEvent.IsActive = dto.IsActive;
-        scheduleEvent.NotificationEmail = dto.NotificationEmail;
-        scheduleEvent.NotifyOnSuccess = dto.NotifyOnSuccess;
-        scheduleEvent.NotifyOnFailure = dto.NotifyOnFailure;
-        scheduleEvent.NotifySlackOnSuccess = dto.NotifySlackOnSuccess;
-        scheduleEvent.NotifySlackOnFailure = dto.NotifySlackOnFailure;
         scheduleEvent.UpdatedAt = DateTime.UtcNow;
         scheduleEvent.UpdatedBy = "API"; // TODO: Set to actual user when authentication is implemented
 
