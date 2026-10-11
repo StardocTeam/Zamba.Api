@@ -58,6 +58,94 @@ namespace Zamba.Api.Migrations
                     b.ToTable("CopilotFeedback");
                 });
 
+            modelBuilder.Entity("Zamba.Api.Models.TraceRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<DateTimeOffset>("RegisteredAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("TraceConfig")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("TraceTimestampUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("TraceSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TraceSourceId", "RelativePath")
+                        .IsUnique();
+
+                    b.HasIndex("TraceSourceId", "TraceTimestampUtc");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TraceRecords");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.TraceSource", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApplicationName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Environment")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("FolderPath")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationName", "Environment", "FolderPath")
+                        .IsUnique();
+
+                    b.ToTable("TraceSources");
+                });
+
             modelBuilder.Entity("Zamba.Api.Models.CopilotRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -489,6 +577,17 @@ namespace Zamba.Api.Migrations
                     b.Navigation("ScheduleEvent");
                 });
 
+            modelBuilder.Entity("Zamba.Api.Models.TraceRecord", b =>
+                {
+                    b.HasOne("Zamba.Api.Models.TraceSource", "TraceSource")
+                        .WithMany("Traces")
+                        .HasForeignKey("TraceSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TraceSource");
+                });
+
             modelBuilder.Entity("Zamba.Api.Models.ScheduleExecutionLog", b =>
                 {
                     b.HasOne("Zamba.Api.Models.ScheduleEvent", "ScheduleEvent")
@@ -512,6 +611,11 @@ namespace Zamba.Api.Migrations
                     b.Navigation("ExecutionLogs");
 
                     b.Navigation("ScheduleConfig");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.TraceSource", b =>
+                {
+                    b.Navigation("Traces");
                 });
 #pragma warning restore 612, 618
         }

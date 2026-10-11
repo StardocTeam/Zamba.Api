@@ -42,6 +42,10 @@ public class ZambaDbContext : DbContext
 
     public DbSet<Models.CopilotFeedback> CopilotFeedback { get; set; }
 
+    public DbSet<Models.TraceSource> TraceSources { get; set; }
+
+    public DbSet<Models.TraceRecord> TraceRecords { get; set; }
+
     /// <summary>
     /// Configures the model when it is first created.
     /// </summary>
@@ -231,6 +235,31 @@ public class ZambaDbContext : DbContext
             entity.HasOne(feedback => feedback.Run)
                 .WithMany(run => run.Feedback)
                 .HasForeignKey(feedback => feedback.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Models.TraceSource>(entity =>
+        {
+            entity.HasKey(source => source.Id);
+            entity.Property(source => source.ApplicationName).HasMaxLength(128).IsRequired();
+            entity.Property(source => source.Environment).HasMaxLength(64).IsRequired();
+            entity.Property(source => source.FolderPath).HasMaxLength(2048).IsRequired();
+            entity.HasIndex(source => new { source.ApplicationName, source.Environment, source.FolderPath }).IsUnique();
+        });
+
+        modelBuilder.Entity<Models.TraceRecord>(entity =>
+        {
+            entity.HasKey(trace => trace.Id);
+            entity.Property(trace => trace.RelativePath).HasMaxLength(2048).IsRequired();
+            entity.Property(trace => trace.FileName).HasMaxLength(512).IsRequired();
+            entity.Property(trace => trace.UserId).HasMaxLength(128);
+            entity.Property(trace => trace.Title).HasMaxLength(512).IsRequired();
+            entity.HasIndex(trace => new { trace.TraceSourceId, trace.RelativePath }).IsUnique();
+            entity.HasIndex(trace => new { trace.TraceSourceId, trace.TraceTimestampUtc });
+            entity.HasIndex(trace => trace.UserId);
+            entity.HasOne(trace => trace.TraceSource)
+                .WithMany(source => source.Traces)
+                .HasForeignKey(trace => trace.TraceSourceId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
