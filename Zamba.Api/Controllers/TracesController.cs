@@ -180,6 +180,24 @@ public sealed class TracesController(
         }
     }
 
+    [HttpGet("{id:long}/status")]
+    public async Task<ActionResult<TraceContentStatusResponse>> GetTraceContentStatus(
+        long id,
+        CancellationToken cancellationToken)
+    {
+        var trace = await dbContext.TraceRecords.AsNoTracking()
+            .Include(item => item.TraceSource)
+            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (trace is null || !trace.TraceSource.IsEnabled)
+            return NotFound();
+
+        if (!TryResolveTracePath(trace.TraceSource, trace.RelativePath, out var filePath) || !System.IO.File.Exists(filePath))
+            return NotFound("The registered trace file is no longer available.");
+
+        var file = new FileInfo(filePath);
+        return Ok(new TraceContentStatusResponse(file.Length, new DateTimeOffset(file.LastWriteTimeUtc)));
+    }
+
     [HttpPost]
     public async Task<ActionResult<TraceRecordResponse>> RegisterTrace(
         RegisterTraceRequest request,

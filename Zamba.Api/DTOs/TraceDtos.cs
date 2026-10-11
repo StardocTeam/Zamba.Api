@@ -79,6 +79,9 @@ public sealed record TraceRecordResponse(
 /// <summary>Result of scanning a source folder for trace files.</summary>
 public sealed record TraceScanResponse(int Discovered, int Registered);
 
+/// <summary>File signature used to detect trace updates without downloading the full file.</summary>
+public sealed record TraceContentStatusResponse(long Length, DateTimeOffset LastModifiedUtc);
+
 /// <summary>A paged trace search result.</summary>
 public sealed record TracePageResponse(
     IReadOnlyList<TraceRecordResponse> Items,
