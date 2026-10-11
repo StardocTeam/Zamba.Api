@@ -42,6 +42,9 @@ builder.Services.AddScoped<Zamba.Api.Services.IScheduleEventNotificationService,
 builder.Services.AddScoped<Zamba.Api.Services.ISlackScheduleNotificationService, Zamba.Api.Services.SlackScheduleNotificationService>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryService, Zamba.Api.Services.CopilotTelemetryService>();
 builder.Services.AddScoped<Zamba.Api.Services.ICopilotTelemetryQueryService, Zamba.Api.Services.CopilotTelemetryQueryService>();
+builder.Services.AddScoped<Zamba.Api.Services.IEntityRagIndexingService, Zamba.Api.Services.EntityRagIndexingService>();
+builder.Services.AddHostedService<Zamba.Api.Services.EntityRagIndexingHostedService>();
+builder.Services.AddScoped<Zamba.Api.Services.IDashboardCatalogService, Zamba.Api.Services.DashboardCatalogService>();
 
 builder.Services.AddSingleton(provider => new Sdcb.PaddleOCR.PaddleOcrAll(
     Sdcb.PaddleOCR.Models.Local.LocalFullModels.LatinV5,

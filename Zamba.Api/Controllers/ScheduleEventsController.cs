@@ -101,6 +101,7 @@ public class ScheduleEventsController : ControllerBase
             EndpointMethod = dto.EndpointMethod,
             EndpointParameters = dto.EndpointParameters,
             EndpointBody = dto.EndpointBody,
+            RagDocumentTypeId = dto.RagDocumentTypeId,
             IsActive = dto.IsActive,
             ScheduleConfig = dto.ScheduleConfig!
         };

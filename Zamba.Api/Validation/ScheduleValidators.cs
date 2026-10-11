@@ -56,6 +56,11 @@ public class CreateOrUpdateScheduleEventValidator : AbstractValidator<CreateOrUp
         RuleFor(x => x.EndpointUrl).MaximumLength(2048);
         RuleFor(x => x.EndpointBody).MaximumLength(100000);
 
+        RuleFor(x => x.RagDocumentTypeId)
+            .NotNull().WithMessage("RagDocumentTypeId is required for EmbeddingRag schedules")
+            .GreaterThan(0).When(x => x.RagDocumentTypeId.HasValue)
+            .When(x => x.ExecutionType == ScheduleExecutionType.EmbeddingRag);
+
         RuleFor(x => x.NotificationEmail)
             .MaximumLength(320)
             .EmailAddress()

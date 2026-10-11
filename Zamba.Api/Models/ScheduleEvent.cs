@@ -7,7 +7,8 @@ public enum ScheduleExecutionType
 {
     ExecuteRule = 0,
     ExecuteQuery = 1,
-    ExecuteEndPoint = 2
+    ExecuteEndPoint = 2,
+    EmbeddingRag = 3
 }
 
 /// <summary>
@@ -75,6 +76,8 @@ public class ScheduleEvent
     /// Request body used by ExecuteEndPoint schedules.
     /// </summary>
     public string? EndpointBody { get; set; }
+
+    public decimal? RagDocumentTypeId { get; set; }
 
     /// <summary>
     /// Whether this schedule event is currently active.

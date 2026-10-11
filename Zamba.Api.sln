@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zamba.Api", "Zamba.Api\Zamb
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zamba.McpServer", "Zamba.McpServer\Zamba.McpServer.csproj", "{E67C596E-E1BA-48AE-B39C-519FD54F8696}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zamba.Api.Tests", "tests\Zamba.Api.Tests\Zamba.Api.Tests.csproj", "{99C8D915-A823-47EF-86E4-7D6037C841A2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +43,18 @@ Global
 		{E67C596E-E1BA-48AE-B39C-519FD54F8696}.Release|x64.Build.0 = Release|Any CPU
 		{E67C596E-E1BA-48AE-B39C-519FD54F8696}.Release|x86.ActiveCfg = Release|Any CPU
 		{E67C596E-E1BA-48AE-B39C-519FD54F8696}.Release|x86.Build.0 = Release|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Debug|x64.Build.0 = Debug|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Debug|x86.Build.0 = Debug|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Release|x64.ActiveCfg = Release|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Release|x64.Build.0 = Release|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Release|x86.ActiveCfg = Release|Any CPU
+		{99C8D915-A823-47EF-86E4-7D6037C841A2}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

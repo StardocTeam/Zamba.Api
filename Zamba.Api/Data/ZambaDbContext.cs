@@ -46,6 +46,34 @@ public class ZambaDbContext : DbContext
 
     public DbSet<Models.TraceRecord> TraceRecords { get; set; }
 
+    public DbSet<Models.EntityRagIndexingConfig> EntityRagIndexingConfigs { get; set; }
+
+    public DbSet<Models.EntityRagDocumentState> EntityRagDocumentStates { get; set; }
+
+    public DbSet<Models.DashboardUser> DashboardUsers => Set<Models.DashboardUser>();
+    public DbSet<Models.DashboardResetPasswordToken> DashboardResetPasswordTokens => Set<Models.DashboardResetPasswordToken>();
+    public DbSet<Models.DashboardPendingVerificationUser> DashboardPendingVerificationUsers => Set<Models.DashboardPendingVerificationUser>();
+    public DbSet<Models.DashboardReportCategory> DashboardReportCategories => Set<Models.DashboardReportCategory>();
+    public DbSet<Models.DashboardReportDescription> DashboardReportDescriptions => Set<Models.DashboardReportDescription>();
+    public DbSet<Models.DashboardReport> DashboardReports => Set<Models.DashboardReport>();
+    public DbSet<Models.DashboardSidebarMenuItem> DashboardSidebarMenuItems => Set<Models.DashboardSidebarMenuItem>();
+    public DbSet<Models.DashboardCalendarEvent> DashboardCalendarEvents => Set<Models.DashboardCalendarEvent>();
+    public DbSet<Models.DashboardWidgetContainer> DashboardWidgetContainers => Set<Models.DashboardWidgetContainer>();
+    public DbSet<Models.DashboardCarouselContent> DashboardCarouselContents => Set<Models.DashboardCarouselContent>();
+    public DbSet<Models.DashboardCarouselConfig> DashboardCarouselConfigs => Set<Models.DashboardCarouselConfig>();
+    public DbSet<Models.DashboardVideoPlayerSource> DashboardVideoPlayerSources => Set<Models.DashboardVideoPlayerSource>();
+    public DbSet<Models.DashboardRole> DashboardRoles => Set<Models.DashboardRole>();
+    public DbSet<Models.DashboardUserConfiguration> DashboardUserConfigurations => Set<Models.DashboardUserConfiguration>();
+    public DbSet<Models.DashboardUserRight> DashboardUserRights => Set<Models.DashboardUserRight>();
+    public DbSet<Models.DashboardUserGroup> DashboardUserGroups => Set<Models.DashboardUserGroup>();
+    public DbSet<Models.DashboardGroupInheritance> DashboardGroupInheritances => Set<Models.DashboardGroupInheritance>();
+    public DbSet<Models.DashboardWorkflow> DashboardWorkflows => Set<Models.DashboardWorkflow>();
+    public DbSet<Models.DashboardWorkflowStep> DashboardWorkflowSteps => Set<Models.DashboardWorkflowStep>();
+    public DbSet<Models.DashboardDocumentType> DashboardDocumentTypes => Set<Models.DashboardDocumentType>();
+    public DbSet<Models.DashboardWorkflowDocument> DashboardWorkflowDocuments => Set<Models.DashboardWorkflowDocument>();
+    public DbSet<Models.VacationDocument> VacationDocuments => Set<Models.VacationDocument>();
+    public DbSet<Models.DashboardDepartment> DashboardDepartments => Set<Models.DashboardDepartment>();
+
     /// <summary>
     /// Configures the model when it is first created.
     /// </summary>
@@ -104,6 +132,8 @@ public class ZambaDbContext : DbContext
 
             entity.Property(e => e.EndpointBody);
 
+            entity.Property(e => e.RagDocumentTypeId).HasColumnType("decimal(18,0)");
+
             entity.Property(e => e.CreatedBy)
                 .HasMaxLength(255);
 
@@ -120,6 +150,9 @@ public class ZambaDbContext : DbContext
             entity.HasIndex(e => e.RuleId);
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => new { e.ExecutionType, e.RagDocumentTypeId })
+                .IsUnique()
+                .HasFilter("[RagDocumentTypeId] IS NOT NULL");
 
             // One-to-many relationship with ScheduleExecutionLog
             entity.HasMany(e => e.ExecutionLogs)
@@ -261,6 +294,73 @@ public class ZambaDbContext : DbContext
                 .WithMany(source => source.Traces)
                 .HasForeignKey(trace => trace.TraceSourceId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Models.EntityRagIndexingConfig>(entity =>
+        {
+            entity.HasKey(config => config.DocumentTypeId);
+            entity.Property(config => config.DocumentTypeId).HasPrecision(18, 0);
+            entity.Property(config => config.IndexMode).HasConversion<int>();
+            entity.HasIndex(config => new { config.IsEnabled, config.IndexMode });
+        });
+
+        modelBuilder.Entity<Models.EntityRagDocumentState>(entity =>
+        {
+            entity.HasKey(state => new { state.DocumentTypeId, state.DocumentId });
+            entity.Property(state => state.DocumentTypeId).HasPrecision(18, 0);
+            entity.Property(state => state.DocumentId).HasPrecision(18, 0);
+            entity.Property(state => state.Status).HasConversion<int>();
+            entity.Property(state => state.VectorDocumentId).HasMaxLength(64);
+            entity.Property(state => state.FileName).HasMaxLength(512);
+            entity.Property(state => state.LastError).HasMaxLength(4000);
+            entity.HasIndex(state => new { state.DocumentTypeId, state.Status, state.UpdatedAtUtc });
+        });
+
+        DashboardModelConfiguration.Configure(modelBuilder);
+
+        modelBuilder.Entity<Models.DashboardDepartment>(entity =>
+        {
+            entity.ToTable("SLST_S152", "zambabpm_RRHH");
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Id).HasColumnName("Codigo").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.Name).HasColumnName("Descripcion").HasMaxLength(60).IsUnicode(false);
+        });
+
+        modelBuilder.Entity<Models.VacationDocument>(entity =>
+        {
+            entity.ToTable("DOC_I110", "zambabpm_RRHH");
+            entity.HasKey(row => row.DocumentId);
+            entity.Property(row => row.DocumentId).HasColumnName("DOC_ID").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.LastUpdate).HasColumnName("lupdate");
+            entity.Property(row => row.Created).HasColumnName("crdate");
+            entity.Property(row => row.Date).HasColumnName("Fecha");
+            entity.Property(row => row.I110).HasColumnName("I110").HasMaxLength(30).IsUnicode(false);
+            entity.Property(row => row.I166).HasColumnName("I166").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I168).HasColumnName("I168").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I169).HasColumnName("I169").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I136).HasColumnName("I136").HasMaxLength(2000).IsUnicode(false);
+            entity.Property(row => row.I189).HasColumnName("I189").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I224).HasColumnName("I224").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I192).HasColumnName("I192").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I227).HasColumnName("I227");
+            entity.Property(row => row.I228).HasColumnName("I228");
+            entity.Property(row => row.I225).HasColumnName("I225").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I229).HasColumnName("I229");
+            entity.Property(row => row.I230).HasColumnName("I230");
+            entity.Property(row => row.I226).HasColumnName("I226").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I164).HasColumnName("I164").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I102).HasColumnName("I102").HasMaxLength(100).IsUnicode(false);
+            entity.Property(row => row.I101).HasColumnName("I101").HasMaxLength(100).IsUnicode(false);
+            entity.Property(row => row.I239).HasColumnName("I239").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I165).HasColumnName("i165").HasColumnType("numeric(7,0)");
+            entity.Property(row => row.I262).HasColumnName("I262");
+            entity.Property(row => row.I264).HasColumnName("I264").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I283).HasColumnName("I283");
+            entity.Property(row => row.I258).HasColumnName("i258").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I295).HasColumnName("I295").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I167).HasColumnName("I167").HasColumnType("numeric(18,0)");
+            entity.Property(row => row.I170).HasColumnName("i170").HasMaxLength(100).IsUnicode(false);
+            entity.Property(row => row.I290).HasColumnName("I290").HasColumnType("numeric(18,0)");
         });
     }
 }

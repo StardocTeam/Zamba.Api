@@ -289,6 +289,72 @@ namespace Zamba.Api.Migrations
                     b.ToTable("CopilotRunSteps");
                 });
 
+            modelBuilder.Entity("Zamba.Api.Models.EntityRagDocumentState", b =>
+                {
+                    b.Property<decimal>("DocumentTypeId")
+                        .HasPrecision(18, 0)
+                        .HasColumnType("decimal(18,0)");
+
+                    b.Property<decimal>("DocumentId")
+                        .HasPrecision(18, 0)
+                        .HasColumnType("decimal(18,0)");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<DateTime?>("IndexedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("VectorDocumentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("DocumentTypeId", "DocumentId");
+
+                    b.HasIndex("DocumentTypeId", "Status", "UpdatedAtUtc");
+
+                    b.ToTable("EntityRagDocumentStates");
+                });
+
+            modelBuilder.Entity("Zamba.Api.Models.EntityRagIndexingConfig", b =>
+                {
+                    b.Property<decimal>("DocumentTypeId")
+                        .HasPrecision(18, 0)
+                        .HasColumnType("decimal(18,0)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("IndexFromDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IndexMode")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("DocumentTypeId");
+
+                    b.HasIndex("IsEnabled", "IndexMode");
+
+                    b.ToTable("EntityRagIndexingConfigs");
+                });
+
             modelBuilder.Entity("Zamba.Api.Models.ScheduleConfig", b =>
                 {
                     b.Property<int>("Id")
@@ -422,6 +488,9 @@ namespace Zamba.Api.Migrations
                     b.Property<string>("Query")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<decimal?>("RagDocumentTypeId")
+                        .HasColumnType("decimal(18,0)");
+
                     b.Property<string>("RuleId")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -443,6 +512,10 @@ namespace Zamba.Api.Migrations
                     b.HasIndex("IsActive");
 
                     b.HasIndex("RuleId");
+
+                    b.HasIndex("ExecutionType", "RagDocumentTypeId")
+                        .IsUnique()
+                        .HasFilter("[RagDocumentTypeId] IS NOT NULL");
 
                     b.ToTable("ScheduleEvents");
                 });

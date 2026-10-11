@@ -52,6 +52,8 @@ public class CreateOrUpdateScheduleEventDto
     /// <summary>Endpoint request body.</summary>
     public string? EndpointBody { get; set; }
 
+    public decimal? RagDocumentTypeId { get; set; }
+
     /// <summary>
     /// Whether this schedule event is active.
     /// </summary>
@@ -172,6 +174,8 @@ public class ScheduleEventDto
     public string? EndpointParameters { get; set; }
 
     public string? EndpointBody { get; set; }
+
+    public decimal? RagDocumentTypeId { get; set; }
 
     /// <summary>
     /// Whether the event is active.

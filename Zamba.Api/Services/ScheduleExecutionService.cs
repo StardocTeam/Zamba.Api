@@ -34,15 +34,18 @@ public sealed class ScheduleExecutionService : IScheduleExecutionService
 
     private readonly ZambaDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IEntityRagIndexingService _entityRagIndexingService;
     private readonly ILogger<ScheduleExecutionService> _logger;
 
     public ScheduleExecutionService(
         ZambaDbContext dbContext,
         IHttpClientFactory httpClientFactory,
+        IEntityRagIndexingService entityRagIndexingService,
         ILogger<ScheduleExecutionService> logger)
     {
         _dbContext = dbContext;
         _httpClientFactory = httpClientFactory;
+        _entityRagIndexingService = entityRagIndexingService;
         _logger = logger;
     }
 
@@ -58,6 +61,7 @@ public sealed class ScheduleExecutionService : IScheduleExecutionService
                 ScheduleExecutionType.ExecuteRule => await ExecuteRuleAsync(schedule, apiBaseUri, cancellationToken),
                 ScheduleExecutionType.ExecuteQuery => await ExecuteQueryAsync(schedule.Query ?? "", cancellationToken),
                 ScheduleExecutionType.ExecuteEndPoint => await ExecuteEndpointAsync(schedule, cancellationToken),
+                ScheduleExecutionType.EmbeddingRag => await ExecuteEmbeddingRagAsync(schedule, cancellationToken),
                 _ => new ScheduleExecutionResultDto { StatusCode = 400, ErrorMessage = "Unknown schedule execution type." }
             };
 
@@ -96,6 +100,27 @@ public sealed class ScheduleExecutionService : IScheduleExecutionService
                 Result = string.IsNullOrWhiteSpace(schedule.ExpectedResult) ? ResultSuccess : ResultFail
             };
         }
+    }
+
+    private async Task<ScheduleExecutionResultDto> ExecuteEmbeddingRagAsync(
+        CreateOrUpdateScheduleEventDto schedule,
+        CancellationToken cancellationToken)
+    {
+        if (!schedule.RagDocumentTypeId.HasValue)
+        {
+            return new ScheduleExecutionResultDto { StatusCode = 400, ErrorMessage = "RagDocumentTypeId is required for EmbeddingRag schedules." };
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        var result = await _entityRagIndexingService.RunBatchAsync(schedule.RagDocumentTypeId.Value, cancellationToken);
+        stopwatch.Stop();
+        return new ScheduleExecutionResultDto
+        {
+            StatusCode = result.Failed > 0 ? 500 : 200,
+            ResponseBody = JsonSerializer.Serialize(result),
+            ErrorMessage = result.Failed > 0 ? $"{result.Failed} document(s) failed to index." : null,
+            DurationMs = stopwatch.ElapsedMilliseconds
+        };
     }
 
     public async Task<ScheduleExecutionResultDto> ExecuteQueryAsync(
