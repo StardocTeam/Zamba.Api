@@ -17,7 +17,7 @@ public sealed class TracesController(
     ILogger<TracesController> logger) : ControllerBase
 {
     private static readonly Regex TimestampInFileName = new(
-        @"(?<timestamp>\d{2}-\d{2}-\d{4} \d{2}-\d{2}-\d{2})\.json$",
+        @"(?<timestamp>\d{2}-\d{2}-\d{4} \d{2}-\d{2}-\d{2})\.(?:json|txt)$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     [HttpGet("sources")]
@@ -166,6 +166,9 @@ public sealed class TracesController(
 
         try
         {
+            if (string.Equals(Path.GetExtension(filePath), ".txt", StringComparison.OrdinalIgnoreCase))
+                return Ok(await System.IO.File.ReadAllTextAsync(filePath, cancellationToken));
+
             await using var stream = System.IO.File.OpenRead(filePath);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
             return Ok(document.RootElement.Clone());
@@ -189,9 +192,8 @@ public sealed class TracesController(
 
         if (!TryResolveTracePath(source, request.RelativePath, out var filePath))
             return BadRequest("RelativePath must refer to a file beneath the registered source folder.");
-        if (!Path.GetFileName(filePath).StartsWith("Trace", StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(Path.GetExtension(filePath), ".json", StringComparison.OrdinalIgnoreCase))
-            return BadRequest("Only JSON files whose names start with 'Trace' can be registered.");
+        if (!IsSupportedTraceFile(filePath))
+            return BadRequest("Only JSON or TXT trace files whose names start with 'Trace' can be registered.");
         if (!System.IO.File.Exists(filePath))
             return NotFound("The trace file does not exist beneath the registered source folder.");
 
@@ -230,7 +232,9 @@ public sealed class TracesController(
         if (!Directory.Exists(source.FolderPath))
             return NotFound("The registered source folder is unavailable to this API instance.");
 
-        var files = Directory.EnumerateFiles(source.FolderPath, "Trace*.json", SearchOption.AllDirectories).ToArray();
+        var files = Directory.EnumerateFiles(source.FolderPath, "Trace*", SearchOption.AllDirectories)
+            .Where(IsSupportedTraceFile)
+            .ToArray();
         var existingPaths = await dbContext.TraceRecords.AsNoTracking()
             .Where(trace => trace.TraceSourceId == source.Id)
             .Select(trace => trace.RelativePath)
@@ -310,6 +314,9 @@ public sealed class TracesController(
         string filePath,
         CancellationToken cancellationToken)
     {
+        if (string.Equals(Path.GetExtension(filePath), ".txt", StringComparison.OrdinalIgnoreCase))
+            return (null, null, Path.GetFileNameWithoutExtension(filePath));
+
         try
         {
             await using var stream = System.IO.File.OpenRead(filePath);
@@ -341,6 +348,15 @@ public sealed class TracesController(
         if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out var value))
             return null;
         return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
+    }
+
+    private static bool IsSupportedTraceFile(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        var extension = Path.GetExtension(filePath);
+        return fileName.StartsWith("Trace", StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(extension, ".txt", StringComparison.OrdinalIgnoreCase));
     }
 
     private static DateTimeOffset? ParseTimestamp(string filePath)
