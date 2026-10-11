@@ -22,6 +22,22 @@ public sealed class WorkflowDashboardTaskQuery
     public int PageSize { get; set; } = 25;
 }
 
+public sealed class WorkflowDashboardUsersQuery
+{
+    public decimal? UserId { get; set; }
+    public decimal? WorkflowId { get; set; }
+    public decimal? StepId { get; set; }
+    public decimal? DocumentTypeId { get; set; }
+    public DateTime? From { get; set; }
+    public DateTime? To { get; set; }
+    public int HistoryLimit { get; set; } = 100;
+}
+
+public sealed class WorkflowDashboardReassignment
+{
+    public decimal UserId { get; set; }
+}
+
 [ApiController]
 [Route("api/workflow-dashboard")]
 public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : ControllerBase
@@ -179,6 +195,174 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         });
     }
 
+    [HttpGet("users/overview")]
+    public async Task<ActionResult<object>> GetUsersOverview(
+        [FromQuery] WorkflowDashboardUsersQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        await EnsureOpenAsync(connection, cancellationToken);
+        var schema = await DatabaseSchema.LoadAsync(connection, cancellationToken);
+        if (!schema.TryGetTable("USRTABLE", out var userTable)
+            || !schema.TryGetTable("WFDocument", out var taskTable))
+        {
+            return Problem("Faltan tablas de usuarios o tareas para generar el dashboard.", statusCode: 503);
+        }
+
+        var userId = userTable.FindColumn("ID");
+        var userName = userTable.FindColumn("NAME");
+        var taskAssignee = taskTable.FindColumn("User_Asigned");
+        var taskKey = taskTable.FindColumn("Task_ID");
+        if (userId is null || userName is null || taskAssignee is null || taskKey is null)
+        {
+            return Problem("El esquema no contiene las columnas necesarias para distribuir tareas.", statusCode: 503);
+        }
+
+        var taskFilters = new List<string>();
+        var taskParameters = new List<(string Name, object? Value)>();
+        AddUserFilter(query.UserId, "u", userId, taskFilters, taskParameters, "userId");
+        AddUserFilter(query.WorkflowId, "d", taskTable.FindColumn(WorkflowIdColumn), taskFilters, taskParameters, "workflowId");
+        AddUserFilter(query.StepId, "d", taskTable.FindColumn(StepIdColumn), taskFilters, taskParameters, "stepId");
+        AddUserFilter(query.DocumentTypeId, "d", taskTable.FindColumn(DocumentTypeIdColumn), taskFilters, taskParameters, "documentTypeId");
+        AddDateFilters(taskTable, "d", taskFilters, taskParameters, query.From, query.To, "CheckIn");
+
+        var taskJoinFilters = taskFilters.Where(filter => !filter.StartsWith("u.", StringComparison.Ordinal)).ToArray();
+        var taskJoinWhere = taskJoinFilters.Length == 0 ? string.Empty : " AND " + string.Join(" AND ", taskJoinFilters);
+        var assignedFilter = query.UserId.HasValue ? " WHERE u." + Quote(userId.Name) + " = @userId" : string.Empty;
+        var distributionSql = $"SELECT u.{Quote(userId.Name)} AS [userId], u.{Quote(userName.Name)} AS [userName], " +
+            $"COUNT(d.{Quote(taskKey.Name)}) AS [pendingTasks], " +
+            $"SUM(CASE WHEN {(taskTable.FindColumn("ExpireDate") is { } expiration ? $"d.{Quote(expiration.Name)} < GETDATE()" : "1 = 0")} THEN 1 ELSE 0 END) AS [overdueTasks] " +
+            $"FROM {Quote(userTable.Schema)}.{Quote(userTable.Name)} u " +
+            $"LEFT JOIN {Quote(taskTable.Schema)}.{Quote(taskTable.Name)} d ON d.{Quote(taskAssignee.Name)} = u.{Quote(userId.Name)}{taskJoinWhere} " +
+            $"{assignedFilter} GROUP BY u.{Quote(userId.Name)}, u.{Quote(userName.Name)} ORDER BY u.{Quote(userName.Name)};";
+        var distribution = await ReadRowsAsync(connection, distributionSql, taskParameters, cancellationToken);
+
+        var performance = new List<Dictionary<string, object?>>();
+        var performanceHistory = new List<Dictionary<string, object?>>();
+        if (schema.TryGetTable("WfStepPerformance", out var performanceTable)
+            && performanceTable.FindColumn("UserName") is { } performanceUser
+            && performanceTable.FindColumn("ConsumedMinutes") is { } consumedMinutes)
+        {
+            var performanceFilters = new List<string>();
+            var performanceParameters = new List<(string Name, object? Value)>();
+            AddUserFilter(query.WorkflowId, "p", performanceTable.FindColumn("WorkflowId"), performanceFilters, performanceParameters, "workflowId");
+            AddUserFilter(query.StepId, "p", performanceTable.FindColumn("StepId"), performanceFilters, performanceParameters, "stepId");
+            AddDateFilters(performanceTable, "p", performanceFilters, performanceParameters, query.From, query.To, "CheckedOut");
+            if (query.UserId.HasValue)
+            {
+                performanceFilters.Add($"EXISTS (SELECT 1 FROM {Quote(userTable.Schema)}.{Quote(userTable.Name)} pu WHERE pu.{Quote(userId.Name)} = @userId AND pu.{Quote(userName.Name)} = p.{Quote(performanceUser.Name)})");
+                performanceParameters.Add(("userId", query.UserId.Value));
+            }
+            var performanceWhere = performanceFilters.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", performanceFilters);
+            performance = await ReadRowsAsync(connection,
+                $"SELECT p.{Quote(performanceUser.Name)} AS [userName], COUNT_BIG(1) AS [recordedSteps], " +
+                $"AVG(CONVERT(float, p.{Quote(consumedMinutes.Name)})) AS [averageExecutionMinutes] " +
+                $"FROM {Quote(performanceTable.Schema)}.{Quote(performanceTable.Name)} p{performanceWhere} " +
+                $"GROUP BY p.{Quote(performanceUser.Name)};", performanceParameters, cancellationToken);
+            if (performanceTable.FindColumn("CheckedOut") is { } performanceDate)
+            {
+                var historyParameters = new List<(string Name, object? Value)>(performanceParameters)
+                {
+                    ("historyLimit", Math.Clamp(query.HistoryLimit, 1, 500))
+                };
+                var historySql = $"SELECT TOP (@historyLimit) " +
+                    $"p.{Quote(performanceUser.Name)} AS [userName], " +
+                    $"{SelectColumn(performanceTable, "p", "WorkflowId", "workflowId")}, " +
+                    $"{SelectColumn(performanceTable, "p", "StepId", "stepId")}, " +
+                    $"p.{Quote(consumedMinutes.Name)} AS [consumedMinutes], " +
+                    $"p.{Quote(performanceDate.Name)} AS [checkedOut] " +
+                    $"FROM {Quote(performanceTable.Schema)}.{Quote(performanceTable.Name)} p{performanceWhere} " +
+                    $"ORDER BY p.{Quote(performanceDate.Name)} DESC;";
+                performanceHistory = await ReadRowsAsync(connection, historySql, historyParameters, cancellationToken);
+            }
+        }
+
+        var performanceByName = performance.ToDictionary(
+            row => Convert.ToString(row.GetValueOrDefault("userName"), CultureInfo.InvariantCulture) ?? string.Empty,
+            row => row,
+            StringComparer.OrdinalIgnoreCase);
+        long totalPending = 0;
+        long totalOverdue = 0;
+        double forecastMinutes = 0;
+        double weightedMinutes = 0;
+        long recordedSteps = 0;
+        foreach (var row in distribution)
+        {
+            var name = Convert.ToString(row.GetValueOrDefault("userName"), CultureInfo.InvariantCulture) ?? string.Empty;
+            performanceByName.TryGetValue(name, out var timing);
+            var pending = ToInt64(row.GetValueOrDefault("pendingTasks"));
+            var overdue = ToInt64(row.GetValueOrDefault("overdueTasks"));
+            var steps = ToInt64(timing?.GetValueOrDefault("recordedSteps"));
+            var average = ToDouble(timing?.GetValueOrDefault("averageExecutionMinutes"));
+            row["recordedSteps"] = steps;
+            row["averageExecutionMinutes"] = steps > 0 ? average : null;
+            row["forecastMinutes"] = steps > 0 ? pending * average : null;
+            totalPending += pending;
+            totalOverdue += overdue;
+            recordedSteps += steps;
+            if (steps > 0) weightedMinutes += average * steps;
+            if (steps > 0) forecastMinutes += pending * average;
+        }
+
+        var historyLimit = Math.Clamp(query.HistoryLimit, 1, 500);
+        var workflowHistory = await ReadWorkflowHistoryAsync(connection, schema, userTable, userId, userName, query, historyLimit, cancellationToken);
+        var userActions = await ReadUserActionsAsync(connection, schema, userTable, userId, userName, query, historyLimit, cancellationToken);
+        return Ok(new
+        {
+            summary = new
+            {
+                pendingTasks = totalPending,
+                overdueTasks = totalOverdue,
+                workflowHistoryEntries = workflowHistory.Count,
+                userActions = userActions.Count,
+                recordedSteps,
+                averageExecutionMinutes = recordedSteps > 0 ? weightedMinutes / recordedSteps : (double?)null,
+                forecastMinutes = recordedSteps > 0 ? forecastMinutes : (double?)null
+            },
+            distribution,
+            performanceHistory,
+            workflowHistory,
+            userActions
+        });
+    }
+
+    [HttpPost("tasks/{taskId}/reassign")]
+    public async Task<ActionResult<object>> ReassignTask(
+        string taskId,
+        [FromBody] WorkflowDashboardReassignment request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!decimal.TryParse(taskId, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedTaskId))
+        {
+            return BadRequest("El identificador de tarea no es válido.");
+        }
+
+        var connection = dbContext.Database.GetDbConnection();
+        await EnsureOpenAsync(connection, cancellationToken);
+        var schema = await DatabaseSchema.LoadAsync(connection, cancellationToken);
+        if (!schema.TryGetTable("WFDocument", out var taskTable)
+            || taskTable.FindColumn("Task_ID") is not { } taskKey
+            || taskTable.FindColumn("User_Asigned") is not { } assigneeColumn
+            || !schema.TryGetTable("USRTABLE", out var userTable)
+            || userTable.FindColumn("ID") is not { } userId)
+        {
+            return Problem("No se encontró el esquema necesario para reasignar tareas.", statusCode: 503);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"UPDATE {Quote(taskTable.Schema)}.{Quote(taskTable.Name)} " +
+            $"SET {Quote(assigneeColumn.Name)} = @userId " +
+            $"WHERE {Quote(taskKey.Name)} = @taskId " +
+            $"AND EXISTS (SELECT 1 FROM {Quote(userTable.Schema)}.{Quote(userTable.Name)} WHERE {Quote(userId.Name)} = @userId);";
+        AddParameters(command, new[] { ("userId", (object?)request.UserId), ("taskId", parsedTaskId) });
+        var affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
+        if (affectedRows == 0)
+        {
+            return NotFound("La tarea no existe o el usuario destino no está registrado.");
+        }
+        return Ok(new { taskId = parsedTaskId, userId = request.UserId });
+    }
+
     [HttpGet("tasks/{taskId}/detail")]
     public async Task<ActionResult<object>> GetTaskDetail(string taskId, CancellationToken cancellationToken)
     {
@@ -220,6 +404,161 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         {
             await connection.OpenAsync(cancellationToken);
         }
+    }
+
+    private static void AddUserFilter(
+        decimal? value,
+        string alias,
+        DatabaseColumn? column,
+        ICollection<string> conditions,
+        ICollection<(string Name, object? Value)> parameters,
+        string parameterName = "filter")
+    {
+        if (!value.HasValue || column is null) return;
+        conditions.Add($"{alias}.{Quote(column.Name)} = @{parameterName}");
+        parameters.Add((parameterName, value.Value));
+    }
+
+    private static void AddDateFilters(
+        DatabaseTable table,
+        string alias,
+        ICollection<string> conditions,
+        ICollection<(string Name, object? Value)> parameters,
+        DateTime? from,
+        DateTime? to,
+        string dateColumnName)
+    {
+        if (table.FindColumn(dateColumnName) is not { } dateColumn) return;
+        if (from.HasValue)
+        {
+            conditions.Add($"{alias}.{Quote(dateColumn.Name)} >= @fromDate");
+            parameters.Add(("fromDate", from.Value.Date));
+        }
+        if (to.HasValue)
+        {
+            conditions.Add($"{alias}.{Quote(dateColumn.Name)} < @toDate");
+            parameters.Add(("toDate", to.Value.Date.AddDays(1)));
+        }
+    }
+
+    private static async Task<List<Dictionary<string, object?>>> ReadWorkflowHistoryAsync(
+        DbConnection connection,
+        DatabaseSchema schema,
+        DatabaseTable userTable,
+        DatabaseColumn userId,
+        DatabaseColumn userName,
+        WorkflowDashboardUsersQuery query,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (!schema.TryGetTable("WFStepHst", out var history)
+            || history.FindColumn("Doc_Id") is not { } documentId
+            || history.FindColumn("Fecha") is not { } date
+            || history.FindColumn("Accion") is not { } action)
+        {
+            return [];
+        }
+
+        var conditions = new List<string>();
+        var parameters = new List<(string Name, object? Value)> { ("historyLimit", limit) };
+        AddDateFilters(history, "h", conditions, parameters, query.From, query.To, "Fecha");
+        AddUserFilter(query.WorkflowId, "h", history.FindColumn("WorkflowId"), conditions, parameters, "workflowId");
+        AddUserFilter(query.StepId, "h", history.FindColumn("StepId"), conditions, parameters, "stepId");
+        AddUserFilter(query.DocumentTypeId, "h", history.FindColumn("DocTypeId"), conditions, parameters, "documentTypeId");
+        if (query.UserId.HasValue && history.FindColumn("UserName") is { } historyUserName)
+        {
+            conditions.Add($"EXISTS (SELECT 1 FROM {Quote(userTable.Schema)}.{Quote(userTable.Name)} hu " +
+                $"WHERE hu.{Quote(userId.Name)} = @userId AND hu.{Quote(userName.Name)} = h.{Quote(historyUserName.Name)})");
+            parameters.Add(("userId", query.UserId.Value));
+        }
+
+        var where = conditions.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", conditions);
+        var sql = $"SELECT TOP (@historyLimit) h.{Quote(documentId.Name)} AS [documentId], " +
+            $"{SelectColumn(history, "h", "Step_Name", "stepName")}, " +
+            $"{SelectColumn(history, "h", "State", "state")}, " +
+            $"{SelectColumn(history, "h", "UserName", "userName")}, " +
+            $"h.{Quote(action.Name)} AS [action], h.{Quote(date.Name)} AS [date], " +
+            $"{SelectColumn(history, "h", "Doc_Name", "documentName")}, " +
+            $"{SelectColumn(history, "h", "Doc_Type_Name", "documentTypeName")}, " +
+            $"{SelectColumn(history, "h", "WorkflowName", "workflowName")}, " +
+            $"{SelectColumn(history, "h", "WorkflowId", "workflowId")}, " +
+            $"{SelectColumn(history, "h", "StepId", "stepId")} " +
+            $"FROM {Quote(history.Schema)}.{Quote(history.Name)} h{where} ORDER BY h.{Quote(date.Name)} DESC;";
+        return await ReadRowsAsync(connection, sql, parameters, cancellationToken);
+    }
+
+    private static async Task<List<Dictionary<string, object?>>> ReadUserActionsAsync(
+        DbConnection connection,
+        DatabaseSchema schema,
+        DatabaseTable userTable,
+        DatabaseColumn userId,
+        DatabaseColumn userName,
+        WorkflowDashboardUsersQuery query,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (!schema.TryGetTable("USER_HST", out var history)
+            || history.FindColumn("USER_ID") is not { } historyUserId
+            || history.FindColumn("ACTION_DATE") is not { } date)
+        {
+            return [];
+        }
+
+        var objectId = history.FindColumn("OBJECT_ID");
+        var objectTypeId = history.FindColumn("OBJECT_TYPE_ID");
+        var actionType = history.FindColumn("ACTION_TYPE");
+        var description = history.FindColumn("S_OBJECT_ID");
+        var hasObjectTypes = schema.TryGetTable("ObjectTypes", out var objectTypes);
+        var objectTypeKey = hasObjectTypes ? objectTypes.FindColumn("ObjectTypesId") : null;
+        var objectTypeName = hasObjectTypes ? objectTypes.FindColumn("ObjectTypes") : null;
+        var hasRights = schema.TryGetTable("RightsType", out var rights);
+        var rightsKey = hasRights ? rights.FindColumn("RightsTypeId") : null;
+        var rightsName = hasRights ? rights.FindColumn("RightsType") : null;
+        var objectTypesAvailable = objectTypeKey is not null && objectTypeName is not null;
+        var rightsAvailable = rightsKey is not null && rightsName is not null;
+
+        var toolExpression = objectTypesAvailable && objectTypeId is not null
+            ? $"COALESCE(ot.{Quote(objectTypeName!.Name)}, CONVERT(varchar(20), h.{Quote(objectTypeId.Name)}))"
+            : objectTypeId is null ? "NULL" : $"CONVERT(varchar(20), h.{Quote(objectTypeId.Name)})";
+        var actionExpression = rightsAvailable && actionType is not null
+            ? $"COALESCE(rt.{Quote(rightsName!.Name)}, CONVERT(varchar(20), h.{Quote(actionType.Name)}))"
+            : actionType is null ? "NULL" : $"CONVERT(varchar(20), h.{Quote(actionType.Name)})";
+        var conditions = new List<string>();
+        var parameters = new List<(string Name, object? Value)> { ("historyLimit", limit) };
+        AddUserFilter(query.UserId, "h", historyUserId, conditions, parameters, "userId");
+        AddDateFilters(history, "h", conditions, parameters, query.From, query.To, "ACTION_DATE");
+        var joins = new List<string>
+        {
+            $"LEFT JOIN {Quote(userTable.Schema)}.{Quote(userTable.Name)} u ON u.{Quote(userId.Name)} = h.{Quote(historyUserId.Name)}"
+        };
+        if (objectTypesAvailable && objectTypeId is not null)
+        {
+            joins.Add($"LEFT JOIN {Quote(objectTypes.Schema)}.{Quote(objectTypes.Name)} ot ON ot.{Quote(objectTypeKey!.Name)} = h.{Quote(objectTypeId.Name)}");
+        }
+        if (rightsAvailable && actionType is not null)
+        {
+            joins.Add($"LEFT JOIN {Quote(rights.Schema)}.{Quote(rights.Name)} rt ON rt.{Quote(rightsKey!.Name)} = h.{Quote(actionType.Name)}");
+        }
+        if (query.WorkflowId.HasValue || query.StepId.HasValue || query.DocumentTypeId.HasValue)
+        {
+            if (objectId is not null && schema.TryGetTable("WFDocument", out var taskTable)
+                && taskTable.FindColumn("Doc_ID") is { } taskDocumentId)
+            {
+                joins.Add($"LEFT JOIN {Quote(taskTable.Schema)}.{Quote(taskTable.Name)} d ON d.{Quote(taskDocumentId.Name)} = h.{Quote(objectId.Name)}");
+                AddUserFilter(query.WorkflowId, "d", taskTable.FindColumn("work_id"), conditions, parameters, "workflowId");
+                AddUserFilter(query.StepId, "d", taskTable.FindColumn("step_Id"), conditions, parameters, "stepId");
+                AddUserFilter(query.DocumentTypeId, "d", taskTable.FindColumn("DOC_TYPE_ID"), conditions, parameters, "documentTypeId");
+            }
+        }
+
+        var where = conditions.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", conditions);
+        var sql = $"SELECT TOP (@historyLimit) h.{Quote(date.Name)} AS [date], " +
+            $"u.{Quote(userName.Name)} AS [userName], {toolExpression} AS [tool], {actionExpression} AS [action], " +
+            $"{(description is null ? "NULL" : $"h.{Quote(description.Name)}")} AS [description], " +
+            $"{(objectId is null ? "NULL" : $"h.{Quote(objectId.Name)}")} AS [documentId] " +
+            $"FROM {Quote(history.Schema)}.{Quote(history.Name)} h {string.Join(" ", joins)}" +
+            $"{where} ORDER BY h.{Quote(date.Name)} DESC;";
+        return await ReadRowsAsync(connection, sql, parameters, cancellationToken);
     }
 
     private static void AddFilter(
@@ -613,6 +952,10 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
     private static string Quote(string identifier) => $"[{identifier.Replace("]", "]]", StringComparison.Ordinal)}]";
 
     private static long ToInt64(object? value) => value is null or DBNull ? 0 : Convert.ToInt64(value);
+
+    private static double ToDouble(object? value) => value is null or DBNull
+        ? 0
+        : Convert.ToDouble(value, CultureInfo.InvariantCulture);
 
     private sealed class TaskSqlParts
     {
