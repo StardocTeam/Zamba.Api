@@ -24,12 +24,35 @@ builder.Services.AddOptions<Zamba.Api.Configuration.ScheduleEmailOptions>()
 builder.Services.AddOptions<Zamba.Api.Configuration.SlackNotificationOptions>()
     .Bind(builder.Configuration.GetSection(Zamba.Api.Configuration.SlackNotificationOptions.SectionName));
 
-// Add Entity Framework Core with SQL Server
-var connectionString = builder.Configuration.GetConnectionString("ZambaConnectionDEV") 
-    ?? throw new InvalidOperationException("Connection string 'ZambaConnectionDEV' not found.");
+// Add Entity Framework Core with the configured database provider.
+var databaseProvider = builder.Configuration["Database:Provider"]?.Trim();
+databaseProvider = string.IsNullOrEmpty(databaseProvider) ? "SqlServer" : databaseProvider;
+var normalizedDatabaseProvider = databaseProvider.ToUpperInvariant();
+var connectionStringName = normalizedDatabaseProvider switch
+{
+    "SQLSERVER" => "ZambaConnectionDEV",
+    "ORACLE" => "ZambaOracleConnectionDEV",
+    _ => throw new InvalidOperationException(
+        $"Unsupported database provider '{databaseProvider}'. Set Database:Provider to 'SqlServer' or 'Oracle'.")
+};
+var connectionString = builder.Configuration.GetConnectionString(connectionStringName);
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        $"Connection string 'ConnectionStrings:{connectionStringName}' is missing or empty.");
+}
+
 builder.Services.AddDbContext<Zamba.Api.Data.ZambaDbContext>(options =>
-    options.UseSqlServer(connectionString)
-);
+{
+    if (normalizedDatabaseProvider == "ORACLE")
+    {
+        options.UseOracle(connectionString);
+    }
+    else
+    {
+        options.UseSqlServer(connectionString);
+    }
+});
 
 // Add FluentValidation
 builder.Services.AddScoped<IValidator<Zamba.Api.DTOs.CreateOrUpdateScheduleEventDto>, Zamba.Api.Validation.CreateOrUpdateScheduleEventValidator>();

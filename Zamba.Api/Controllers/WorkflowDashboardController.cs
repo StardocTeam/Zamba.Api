@@ -47,6 +47,7 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
     private const string DocumentTypeIdColumn = "DOC_TYPE_ID";
     private const string DocumentIdColumn = "Doc_ID";
     private const string IndexIdColumn = "INDEX_ID";
+    private DatabaseSqlDialect SqlDialect => DatabaseSqlDialect.FromProviderName(dbContext.Database.ProviderName);
 
     [HttpGet("filters")]
     public async Task<ActionResult<object>> GetFilters(CancellationToken cancellationToken)
@@ -160,12 +161,12 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
 
         var fromSql = $"FROM {Quote(taskTable.Schema)}.{Quote(taskTable.Name)} d {string.Join(" ", sqlParts.Joins)}";
         var whereSql = conditions.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", conditions);
-        var countSql = $"SELECT COUNT_BIG(1) {fromSql}{whereSql};";
+        var countSql = $"SELECT COUNT(1) {fromSql}{whereSql};";
         var count = Convert.ToInt64(await ScalarAsync(connection, countSql, parameters, cancellationToken));
         var expirationColumn = taskTable.FindColumn("ExpireDate");
         var overdueExpression = expirationColumn is null
             ? "0"
-            : $"SUM(CASE WHEN d.{Quote(expirationColumn.Name)} < GETDATE() THEN 1 ELSE 0 END)";
+            : $"SUM(CASE WHEN d.{Quote(expirationColumn.Name)} < {DatabaseSqlDialect.CurrentTimestamp} THEN 1 ELSE 0 END)";
         var summarySql = $"SELECT " +
             $"{overdueExpression} AS overdueCount, " +
             $"SUM(CASE WHEN {(assigneeColumn is null ? "1" : $"d.{Quote(assigneeColumn.Name)} IS NULL")} THEN 1 ELSE 0 END) AS unassignedCount " +
@@ -231,7 +232,7 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         var assignedFilter = query.UserId.HasValue ? " WHERE u." + Quote(userId.Name) + " = @userId" : string.Empty;
         var distributionSql = $"SELECT u.{Quote(userId.Name)} AS [userId], u.{Quote(userName.Name)} AS [userName], " +
             $"COUNT(d.{Quote(taskKey.Name)}) AS [pendingTasks], " +
-            $"SUM(CASE WHEN {(taskTable.FindColumn("ExpireDate") is { } expiration ? $"d.{Quote(expiration.Name)} < GETDATE()" : "1 = 0")} THEN 1 ELSE 0 END) AS [overdueTasks] " +
+            $"SUM(CASE WHEN {(taskTable.FindColumn("ExpireDate") is { } expiration ? $"d.{Quote(expiration.Name)} < {DatabaseSqlDialect.CurrentTimestamp}" : "1 = 0")} THEN 1 ELSE 0 END) AS [overdueTasks] " +
             $"FROM {Quote(userTable.Schema)}.{Quote(userTable.Name)} u " +
             $"LEFT JOIN {Quote(taskTable.Schema)}.{Quote(taskTable.Name)} d ON d.{Quote(taskAssignee.Name)} = u.{Quote(userId.Name)}{taskJoinWhere} " +
             $"{assignedFilter} GROUP BY u.{Quote(userId.Name)}, u.{Quote(userName.Name)} ORDER BY u.{Quote(userName.Name)};";
@@ -255,8 +256,8 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
             }
             var performanceWhere = performanceFilters.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", performanceFilters);
             performance = await ReadRowsAsync(connection,
-                $"SELECT p.{Quote(performanceUser.Name)} AS [userName], COUNT_BIG(1) AS [recordedSteps], " +
-                $"AVG(CONVERT(float, p.{Quote(consumedMinutes.Name)})) AS [averageExecutionMinutes] " +
+                $"SELECT p.{Quote(performanceUser.Name)} AS [userName], COUNT(1) AS [recordedSteps], " +
+                $"AVG({SqlDialect.CastAsFloat($"p.{Quote(consumedMinutes.Name)}")}) AS [averageExecutionMinutes] " +
                 $"FROM {Quote(performanceTable.Schema)}.{Quote(performanceTable.Name)} p{performanceWhere} " +
                 $"GROUP BY p.{Quote(performanceUser.Name)};", performanceParameters, cancellationToken);
             if (performanceTable.FindColumn("CheckedOut") is { } performanceDate)
@@ -265,14 +266,14 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
                 {
                     ("historyLimit", Math.Clamp(query.HistoryLimit, 1, 500))
                 };
-                var historySql = $"SELECT TOP (@historyLimit) " +
+                var historySql = $"{SqlDialect.SelectWithLimit("historyLimit")}" +
                     $"p.{Quote(performanceUser.Name)} AS [userName], " +
                     $"{SelectColumn(performanceTable, "p", "WorkflowId", "workflowId")}, " +
                     $"{SelectColumn(performanceTable, "p", "StepId", "stepId")}, " +
                     $"p.{Quote(consumedMinutes.Name)} AS [consumedMinutes], " +
                     $"p.{Quote(performanceDate.Name)} AS [checkedOut] " +
                     $"FROM {Quote(performanceTable.Schema)}.{Quote(performanceTable.Name)} p{performanceWhere} " +
-                    $"ORDER BY p.{Quote(performanceDate.Name)} DESC;";
+                    $"ORDER BY p.{Quote(performanceDate.Name)} DESC{SqlDialect.FetchFirst("historyLimit")};";
                 performanceHistory = await ReadRowsAsync(connection, historySql, historyParameters, cancellationToken);
             }
         }
@@ -350,10 +351,12 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         }
 
         await using var command = connection.CreateCommand();
-        command.CommandText = $"UPDATE {Quote(taskTable.Schema)}.{Quote(taskTable.Name)} " +
+        var dialect = SqlDialect;
+        command.CommandText = dialect.PrepareCommandText($"UPDATE {Quote(taskTable.Schema)}.{Quote(taskTable.Name)} " +
             $"SET {Quote(assigneeColumn.Name)} = @userId " +
             $"WHERE {Quote(taskKey.Name)} = @taskId " +
-            $"AND EXISTS (SELECT 1 FROM {Quote(userTable.Schema)}.{Quote(userTable.Name)} WHERE {Quote(userId.Name)} = @userId);";
+            $"AND EXISTS (SELECT 1 FROM {Quote(userTable.Schema)}.{Quote(userTable.Name)} WHERE {Quote(userId.Name)} = @userId);");
+        DatabaseSqlDialect.ConfigureCommand(command);
         AddParameters(command, new[] { ("userId", (object?)request.UserId), ("taskId", parsedTaskId) });
         var affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
         if (affectedRows == 0)
@@ -473,7 +476,7 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         }
 
         var where = conditions.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", conditions);
-        var sql = $"SELECT TOP (@historyLimit) h.{Quote(documentId.Name)} AS [documentId], " +
+        var sql = $"{DatabaseSqlDialect.FromConnection(connection).SelectWithLimit("historyLimit")}h.{Quote(documentId.Name)} AS [documentId], " +
             $"{SelectColumn(history, "h", "Step_Name", "stepName")}, " +
             $"{SelectColumn(history, "h", "State", "state")}, " +
             $"{SelectColumn(history, "h", "UserName", "userName")}, " +
@@ -483,7 +486,7 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
             $"{SelectColumn(history, "h", "WorkflowName", "workflowName")}, " +
             $"{SelectColumn(history, "h", "WorkflowId", "workflowId")}, " +
             $"{SelectColumn(history, "h", "StepId", "stepId")} " +
-            $"FROM {Quote(history.Schema)}.{Quote(history.Name)} h{where} ORDER BY h.{Quote(date.Name)} DESC;";
+            $"FROM {Quote(history.Schema)}.{Quote(history.Name)} h{where} ORDER BY h.{Quote(date.Name)} DESC{DatabaseSqlDialect.FromConnection(connection).FetchFirst("historyLimit")};";
         return await ReadRowsAsync(connection, sql, parameters, cancellationToken);
     }
 
@@ -517,12 +520,13 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         var objectTypesAvailable = objectTypeKey is not null && objectTypeName is not null;
         var rightsAvailable = rightsKey is not null && rightsName is not null;
 
+        var dialect = DatabaseSqlDialect.FromConnection(connection);
         var toolExpression = objectTypesAvailable && objectTypeId is not null
-            ? $"COALESCE(ot.{Quote(objectTypeName!.Name)}, CONVERT(varchar(20), h.{Quote(objectTypeId.Name)}))"
-            : objectTypeId is null ? "NULL" : $"CONVERT(varchar(20), h.{Quote(objectTypeId.Name)})";
+            ? $"COALESCE(ot.{Quote(objectTypeName!.Name)}, {dialect.CastAsText($"h.{Quote(objectTypeId.Name)}")})"
+            : objectTypeId is null ? "NULL" : dialect.CastAsText($"h.{Quote(objectTypeId.Name)}");
         var actionExpression = rightsAvailable && actionType is not null
-            ? $"COALESCE(rt.{Quote(rightsName!.Name)}, CONVERT(varchar(20), h.{Quote(actionType.Name)}))"
-            : actionType is null ? "NULL" : $"CONVERT(varchar(20), h.{Quote(actionType.Name)})";
+            ? $"COALESCE(rt.{Quote(rightsName!.Name)}, {dialect.CastAsText($"h.{Quote(actionType.Name)}")})"
+            : actionType is null ? "NULL" : dialect.CastAsText($"h.{Quote(actionType.Name)}");
         var conditions = new List<string>();
         var parameters = new List<(string Name, object? Value)> { ("historyLimit", limit) };
         AddUserFilter(query.UserId, "h", historyUserId, conditions, parameters, "userId");
@@ -552,12 +556,12 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         }
 
         var where = conditions.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", conditions);
-        var sql = $"SELECT TOP (@historyLimit) h.{Quote(date.Name)} AS [date], " +
+        var sql = $"{dialect.SelectWithLimit("historyLimit")}h.{Quote(date.Name)} AS [date], " +
             $"u.{Quote(userName.Name)} AS [userName], {toolExpression} AS [tool], {actionExpression} AS [action], " +
             $"{(description is null ? "NULL" : $"h.{Quote(description.Name)}")} AS [description], " +
             $"{(objectId is null ? "NULL" : $"h.{Quote(objectId.Name)}")} AS [documentId] " +
             $"FROM {Quote(history.Schema)}.{Quote(history.Name)} h {string.Join(" ", joins)}" +
-            $"{where} ORDER BY h.{Quote(date.Name)} DESC;";
+            $"{where} ORDER BY h.{Quote(date.Name)} DESC{dialect.FetchFirst("historyLimit")};";
         return await ReadRowsAsync(connection, sql, parameters, cancellationToken);
     }
 
@@ -898,7 +902,9 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = sql;
+        var dialect = DatabaseSqlDialect.FromConnection(connection);
+        command.CommandText = dialect.PrepareCommandText(sql);
+        DatabaseSqlDialect.ConfigureCommand(command);
         AddParameters(command, parameters);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var rows = new List<Dictionary<string, object?>>();
@@ -933,7 +939,9 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = sql;
+        var dialect = DatabaseSqlDialect.FromConnection(connection);
+        command.CommandText = dialect.PrepareCommandText(sql);
+        DatabaseSqlDialect.ConfigureCommand(command);
         AddParameters(command, parameters);
         return await command.ExecuteScalarAsync(cancellationToken);
     }
@@ -943,7 +951,7 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         foreach (var (name, value) in parameters)
         {
             var parameter = command.CreateParameter();
-            parameter.ParameterName = "@" + name;
+            parameter.ParameterName = DatabaseSqlDialect.FromConnection(command.Connection!).CommandParameterName(name);
             parameter.Value = value ?? DBNull.Value;
             command.Parameters.Add(parameter);
         }
@@ -980,7 +988,7 @@ public sealed class WorkflowDashboardController(ZambaDbContext dbContext) : Cont
         public static async Task<DatabaseSchema> LoadAsync(DbConnection connection, CancellationToken cancellationToken)
         {
             var rows = await ReadRowsAsync(connection,
-                "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;",
+                DatabaseSqlDialect.FromConnection(connection).ColumnsQuery,
                 Array.Empty<(string, object?)>(), cancellationToken);
             var tables = rows
                 .GroupBy(row => ($"{row["TABLE_SCHEMA"]}", $"{row["TABLE_NAME"]}"))

@@ -1,13 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace Zamba.Api.Data;
 
 /// <summary>
 /// Entity Framework Core database context for Zamba API.
 /// Manages all database entities and their relationships.
-/// 
-/// NOTE: This context is configured for SQL Server by default.
-/// To switch to Oracle, see README for configuration changes.
+/// The provider is selected with the Database:Provider configuration setting.
 /// </summary>
 public class ZambaDbContext : DbContext
 {
@@ -80,6 +79,7 @@ public class ZambaDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        var isOracle = string.Equals(Database.ProviderName, "Oracle.EntityFrameworkCore", StringComparison.Ordinal);
 
         // Configure ScheduleEvent
         modelBuilder.Entity<Models.ScheduleEvent>(entity =>
@@ -141,18 +141,25 @@ public class ZambaDbContext : DbContext
                 .HasMaxLength(255);
 
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql(isOracle ? "SYS_EXTRACT_UTC(SYSTIMESTAMP)" : "GETUTCDATE()");
 
             entity.Property(e => e.UpdatedAt)
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql(isOracle ? "SYS_EXTRACT_UTC(SYSTIMESTAMP)" : "GETUTCDATE()");
 
             // Indexes for common queries
             entity.HasIndex(e => e.RuleId);
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.CreatedAt);
-            entity.HasIndex(e => new { e.ExecutionType, e.RagDocumentTypeId })
-                .IsUnique()
-                .HasFilter("[RagDocumentTypeId] IS NOT NULL");
+            var executionTypeDocumentTypeIndex = entity.HasIndex(e => new { e.ExecutionType, e.RagDocumentTypeId });
+            if (isOracle)
+            {
+                executionTypeDocumentTypeIndex.IsUnique();
+            }
+            else
+            {
+                executionTypeDocumentTypeIndex.IsUnique()
+                    .HasFilter("[RagDocumentTypeId] IS NOT NULL");
+            }
 
             // One-to-many relationship with ScheduleExecutionLog
             entity.HasMany(e => e.ExecutionLogs)
@@ -184,8 +191,11 @@ public class ZambaDbContext : DbContext
 
             // Convert TimeSpan to tinyint for storage (hours) or use time data type
             // SQL Server supports time(7) for TimeSpan without loss
-            entity.Property(e => e.TimeOfDay)
-                .HasColumnType("time");
+            var timeOfDay = entity.Property(e => e.TimeOfDay);
+            if (!isOracle)
+            {
+                timeOfDay.HasColumnType("time");
+            }
         });
 
         // Configure ScheduleExecutionLog
@@ -316,11 +326,11 @@ public class ZambaDbContext : DbContext
             entity.HasIndex(state => new { state.DocumentTypeId, state.Status, state.UpdatedAtUtc });
         });
 
-        DashboardModelConfiguration.Configure(modelBuilder);
+        DashboardModelConfiguration.Configure(modelBuilder, isOracle);
 
         modelBuilder.Entity<Models.DashboardDepartment>(entity =>
         {
-            entity.ToTable("SLST_S152", "zambabpm_RRHH");
+            entity.ToTable("SLST_S152", isOracle ? null : "zambabpm_RRHH");
             entity.HasKey(row => row.Id);
             entity.Property(row => row.Id).HasColumnName("Codigo").HasColumnType("numeric(18,0)");
             entity.Property(row => row.Name).HasColumnName("Descripcion").HasMaxLength(60).IsUnicode(false);
@@ -328,7 +338,7 @@ public class ZambaDbContext : DbContext
 
         modelBuilder.Entity<Models.VacationDocument>(entity =>
         {
-            entity.ToTable("DOC_I110", "zambabpm_RRHH");
+            entity.ToTable("DOC_I110", isOracle ? null : "zambabpm_RRHH");
             entity.HasKey(row => row.DocumentId);
             entity.Property(row => row.DocumentId).HasColumnName("DOC_ID").HasColumnType("numeric(18,0)");
             entity.Property(row => row.LastUpdate).HasColumnName("lupdate");
@@ -362,5 +372,34 @@ public class ZambaDbContext : DbContext
             entity.Property(row => row.I170).HasColumnName("i170").HasMaxLength(100).IsUnicode(false);
             entity.Property(row => row.I290).HasColumnName("I290").HasColumnType("numeric(18,0)");
         });
+
+        if (isOracle)
+        {
+            ConfigureOracleIdentifiers(modelBuilder);
+        }
+    }
+
+    private static void ConfigureOracleIdentifiers(ModelBuilder modelBuilder)
+    {
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            var tableName = entityType.GetTableName();
+            if (tableName is null)
+            {
+                continue;
+            }
+
+            entityType.SetTableName(tableName.ToUpperInvariant());
+            entityType.SetSchema(null);
+            var table = StoreObjectIdentifier.Table(entityType.GetTableName()!, entityType.GetSchema());
+            foreach (var property in entityType.GetProperties())
+            {
+                var columnName = property.GetColumnName(table);
+                if (columnName is not null)
+                {
+                    property.SetColumnName(columnName.ToUpperInvariant());
+                }
+            }
+        }
     }
 }

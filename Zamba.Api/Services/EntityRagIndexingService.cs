@@ -34,6 +34,7 @@ public sealed class EntityRagIndexingService(
 {
     private const int BatchSize = 100;
     private const int OnInsertBatchSize = 25;
+    private DatabaseSqlDialect SqlDialect => DatabaseSqlDialect.FromProviderName(dbContext.Database.ProviderName);
     private readonly VectorStoreOptions _vectorOptions = vectorStoreOptions.Value;
     private readonly FileProcessingOptions _fileOptions = fileProcessingOptions.Value;
 
@@ -57,7 +58,9 @@ public sealed class EntityRagIndexingService(
         try
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = $"SELECT {Quote(idColumn)}, {(nameColumn is null ? "NULL" : Quote(nameColumn))} FROM {Quote(docTypeTable.Schema)}.{Quote(docTypeTable.Name)} ORDER BY {Quote(idColumn)};";
+            var dialect = SqlDialect;
+            command.CommandText = dialect.PrepareCommandText($"SELECT {Quote(idColumn)}, {(nameColumn is null ? "NULL" : Quote(nameColumn))} FROM {Quote(docTypeTable.Schema)}.{Quote(docTypeTable.Name)} ORDER BY {Quote(idColumn)};");
+            DatabaseSqlDialect.ConfigureCommand(command);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             var results = new List<EntityRagIndexingConfigDto>();
             while (await reader.ReadAsync(cancellationToken))
@@ -386,15 +389,21 @@ public sealed class EntityRagIndexingService(
             parameters.Add(("documentId", onlyDocumentId.Value));
         }
 
-        var skipCompleted = onlyDocumentId.HasValue ? "" : $"AND NOT EXISTS (SELECT 1 FROM [dbo].[EntityRagDocumentStates] s WHERE s.[DocumentTypeId] = @documentTypeId AND s.[DocumentId] = d.{Quote(documentId)} AND s.[Status] IN (1, 2))";
+        var stateEntity = dbContext.Model.FindEntityType(typeof(EntityRagDocumentState))!;
+        var stateTableName = stateEntity.GetTableName()!;
+        var stateTable = string.IsNullOrEmpty(stateEntity.GetSchema())
+            ? Quote(stateTableName)
+            : $"{Quote(stateEntity.GetSchema()!)}.{Quote(stateTableName)}";
+        var skipCompleted = onlyDocumentId.HasValue ? "" : $"AND NOT EXISTS (SELECT 1 FROM {stateTable} s WHERE s.{Quote(nameof(EntityRagDocumentState.DocumentTypeId))} = @documentTypeId AND s.{Quote(nameof(EntityRagDocumentState.DocumentId))} = d.{Quote(documentId)} AND s.{Quote(nameof(EntityRagDocumentState.Status))} IN (1, 2))";
         parameters.Add(("documentTypeId", documentTypeId));
         var whereSql = conditions.Count == 0 ? "" : "AND " + string.Join(" AND ", conditions);
         var joinVolume = $"LEFT JOIN {Quote(diskVolume.Schema)}.{Quote(diskVolume.Name)} v ON v.{Quote(volumeId)} = d.{Quote(documentVolume)}";
-        var sql = $"SELECT TOP (@take) d.{Quote(documentId)}, d.{Quote(documentOffset)}, d.{Quote(documentFile)}, v.{Quote(volumePath)} " +
+        var dialect = SqlDialect;
+        var sql = $"{dialect.SelectWithLimit("take")}d.{Quote(documentId)}, d.{Quote(documentOffset)}, d.{Quote(documentFile)}, v.{Quote(volumePath)} " +
             $"FROM {Quote(tables.Document.Schema)}.{Quote(tables.Document.Name)} d " +
             $"INNER JOIN {Quote(tables.Index.Schema)}.{Quote(tables.Index.Name)} i ON i.{Quote(indexDocumentId)} = d.{Quote(documentId)} " +
             $"{joinVolume} WHERE 1 = 1 {whereSql} {skipCompleted} " +
-            $"ORDER BY i.{Quote(createdDate)}, d.{Quote(documentId)};";
+            $"ORDER BY i.{Quote(createdDate)}, d.{Quote(documentId)}{dialect.FetchFirst("take")};";
 
         var connection = dbContext.Database.GetDbConnection();
         var openHere = connection.State != ConnectionState.Open;
@@ -406,12 +415,13 @@ public sealed class EntityRagIndexingService(
         try
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = sql;
+            command.CommandText = dialect.PrepareCommandText(sql);
+            DatabaseSqlDialect.ConfigureCommand(command);
             command.CommandTimeout = 60;
-            AddParameter(command, "take", onlyDocumentId.HasValue ? 1 : batchSize + 1);
+            AddParameter(command, dialect, "take", onlyDocumentId.HasValue ? 1 : batchSize + 1);
             foreach (var (name, value) in parameters)
             {
-                AddParameter(command, name, value);
+                AddParameter(command, dialect, name, value);
             }
 
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -517,7 +527,9 @@ public sealed class EntityRagIndexingService(
         try
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;";
+            var dialect = DatabaseSqlDialect.FromConnection(connection);
+            command.CommandText = dialect.ColumnsQuery;
+            DatabaseSqlDialect.ConfigureCommand(command);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             var tables = new Dictionary<(string Schema, string Table), List<string>>();
             while (await reader.ReadAsync(cancellationToken))
@@ -542,10 +554,10 @@ public sealed class EntityRagIndexingService(
         }
     }
 
-    private static void AddParameter(DbCommand command, string name, object value)
+    private static void AddParameter(DbCommand command, DatabaseSqlDialect dialect, string name, object value)
     {
         var parameter = command.CreateParameter();
-        parameter.ParameterName = $"@{name}";
+        parameter.ParameterName = dialect.CommandParameterName(name);
         parameter.Value = value;
         command.Parameters.Add(parameter);
     }

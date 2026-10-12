@@ -109,6 +109,25 @@ public sealed class DashboardControllerTests
         Assert.AreEqual("zambabpm_RRHH", department?.GetSchema());
     }
 
+    [TestMethod]
+    public void DashboardEntities_BuildWithOracleProviderAndDefaultSchema()
+    {
+        var options = new DbContextOptionsBuilder<ZambaDbContext>()
+            .UseOracle("User Id=test;Password=test;Data Source=localhost:1521/XEPDB1")
+            .Options;
+        using var dbContext = new ZambaDbContext(options);
+
+        var role = dbContext.Model.FindEntityType(typeof(DashboardRole));
+        var scheduleEvent = dbContext.Model.FindEntityType(typeof(ScheduleEvent));
+        var scheduleIndex = scheduleEvent?.GetIndexes()
+            .Single(index => index.Properties.Any(property => property.Name == nameof(ScheduleEvent.RagDocumentTypeId)));
+
+        Assert.IsNotNull(role);
+        Assert.AreEqual("ROL", role.GetTableName());
+        Assert.IsNull(role.GetSchema());
+        Assert.IsTrue(scheduleIndex?.IsUnique ?? false);
+    }
+
     private static ControllerContext AuthenticatedContext()
     {
         var context = new DefaultHttpContext

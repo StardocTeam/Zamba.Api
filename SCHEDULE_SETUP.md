@@ -156,31 +156,26 @@ The message includes the event configuration and execution result. Large payload
 
 ### From SQL Server to Oracle
 
-1. **Update Zamba.Api.csproj:** Replace `Microsoft.EntityFrameworkCore.SqlServer` with `Oracle.EntityFrameworkCore`
+The API selects its EF Core provider with `Database:Provider`. SQL Server remains the default. Set it to `Oracle` to use ODP.NET EF Core; configure the matching connection string separately:
 
-```xml
-<PackageReference Include="Oracle.EntityFrameworkCore" Version="9.0.0" />
+```json
+{
+  "Database": {
+    "Provider": "Oracle"
+  },
+  "ConnectionStrings": {
+    "ZambaOracleConnectionDEV": "User Id=APP_USER;Password=REPLACE_ME;Data Source=localhost:1521/ORCLPDB1"
+  }
+}
 ```
 
-2. **Update Program.cs:** Replace `UseSqlServer()` with `UseOracle()`
+Use environment variables or a secret store for credentials in deployed environments. The equivalent environment-variable keys are `Database__Provider` and `ConnectionStrings__ZambaOracleConnectionDEV`.
 
-```csharp
-builder.Services.AddDbContext<ZambaDbContext>(options =>
-    options.UseOracle(connectionString)
-);
-```
+The Oracle model maps application-owned tables to the connected user's schema and uppercases unquoted identifiers. `Database:Provider` accepts only `SqlServer` or `Oracle`; the selected provider must have a non-empty matching connection string. Dashboard and entity-RAG SQL use provider-aware quoting, parameters, pagination, metadata queries, and Oracle named binding.
 
-3. **Update ZambaDbContext.cs:** Adjust column types for Oracle compatibility:
-   - `datetime2` → `timestamp` or use Oracle-specific types
-   - `bigint` for DurationMs is compatible
-   - `time` type may need adjustment to `interval day to second` or similar
+The checked-in EF migrations were generated for SQL Server. They are not run automatically and must not be applied to Oracle. Before enabling Oracle, create the API-owned tables and indexes using an Oracle-specific schema deployment reviewed for the target Oracle version. The legacy dashboard tables are an external dependency and are not created by these migrations.
 
-4. **Regenerate Migrations:** Delete existing migrations and create new ones
-
-```bash
-dotnet ef migrations add InitialScheduleSchema
-dotnet ef database update
-```
+The schedule execution endpoint accepts read-only `SELECT` statements but does not translate their SQL. Scheduled query text must therefore use syntax supported by the configured provider; keep separate query text per provider where SQL dialects differ. Do not delete the SQL Server migrations. Future Oracle schema changes need a separate Oracle migration set or reviewed Oracle DDL scripts.
 
 ## API Endpoints
 
