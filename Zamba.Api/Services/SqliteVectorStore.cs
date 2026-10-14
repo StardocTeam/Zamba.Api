@@ -233,34 +233,100 @@ public class SqliteVectorStore : IVectorStore
             }
         }
 
-        var candidateCount = Math.Max(topK, topK * 4);
-        var queryTerms = Tokenize(queryText);
+        var lexicalScores = CalculateBm25Scores(scored, queryText);
+        var lexicalRanks = lexicalScores
+            .Where(item => item.Value > 0)
+            .OrderByDescending(item => item.Value)
+            .ThenBy(item => item.Key)
+            .Select((item, rank) => (item.Key, rank))
+            .ToDictionary(item => item.Key, item => item.rank);
+        var vectorRanks = scored
+            .OrderByDescending(item => item.Score)
+            .ThenBy(item => item.Chunk.Index)
+            .Select((item, rank) => (item.Chunk.Index, rank))
+            .ToDictionary(item => item.Index, item => item.rank);
+
         return scored
-            .OrderByDescending(x => x.Score)
-            .Take(candidateCount)
-            .Select(x => (x.Chunk, Score: RerankScore(x.Chunk.Content, queryTerms, x.Score)))
-            .OrderByDescending(x => x.Score)
+            .Select(item => (
+                item.Chunk,
+                Score: ReciprocalRankFusionScore(item.Chunk.Index, vectorRanks, lexicalRanks, item.Score)))
+            .OrderByDescending(item => item.Score)
+            .ThenByDescending(item => item.Chunk.Index)
             .Take(topK)
-            .Select(x => x.Chunk)
+            .Select(item => item.Chunk)
             .ToList();
     }
 
-    private static HashSet<string> Tokenize(string text) =>
-        Regex.Matches(text.ToLowerInvariant(), @"[\p{L}\p{N}]{2,}")
-            .Select(match => match.Value)
-            .ToHashSet(StringComparer.Ordinal);
-
-    private static double RerankScore(string content, HashSet<string> queryTerms, double vectorScore)
+    private static Dictionary<int, double> CalculateBm25Scores(
+        IReadOnlyList<(DocumentChunk Chunk, double Score)> chunks, string queryText)
     {
-        if (queryTerms.Count == 0)
+        var queryTerms = Tokenize(queryText)
+            .GroupBy(term => term)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        if (queryTerms.Count == 0 || chunks.Count == 0)
         {
-            return vectorScore;
+            return new Dictionary<int, double>();
         }
 
-        var contentTerms = Tokenize(content);
-        var lexicalScore = (double)queryTerms.Count(contentTerms.Contains) / queryTerms.Count;
-        return Math.Max(0, vectorScore) * 0.65 + lexicalScore * 0.35;
+        var documentTerms = chunks
+            .Select(item => Tokenize(item.Chunk.Content)
+                .GroupBy(term => term)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal))
+            .ToArray();
+        var documentFrequencies = queryTerms.Keys.ToDictionary(
+            term => term,
+            term => documentTerms.Count(terms => terms.ContainsKey(term)),
+            StringComparer.Ordinal);
+        var documentLengths = documentTerms.Select(terms => terms.Values.Sum()).ToArray();
+        var averageDocumentLength = Math.Max(1, documentLengths.Average());
+        var scores = new Dictionary<int, double>(chunks.Count);
+
+        for (var documentIndex = 0; documentIndex < chunks.Count; documentIndex++)
+        {
+            var score = 0d;
+            foreach (var queryTerm in queryTerms)
+            {
+                var termFrequency = documentTerms[documentIndex].GetValueOrDefault(queryTerm.Key);
+                if (termFrequency == 0)
+                {
+                    continue;
+                }
+
+                var documentFrequency = documentFrequencies[queryTerm.Key];
+                var inverseDocumentFrequency = Math.Log(
+                    1 + (chunks.Count - documentFrequency + 0.5) / (documentFrequency + 0.5));
+                var lengthNormalization = 1 - 0.75 + 0.75 * documentLengths[documentIndex] / averageDocumentLength;
+                var termScore = inverseDocumentFrequency *
+                    (termFrequency * 2.2) / (termFrequency + 1.2 * lengthNormalization);
+                score += termScore * (1 + Math.Log(queryTerm.Value));
+            }
+
+            scores[chunks[documentIndex].Chunk.Index] = score;
+        }
+
+        return scores;
     }
+
+    private static double ReciprocalRankFusionScore(
+        int chunkIndex,
+        IReadOnlyDictionary<int, int> vectorRanks,
+        IReadOnlyDictionary<int, int> lexicalRanks,
+        double vectorScore)
+    {
+        const double rankConstant = 60;
+        var score = 0.65 / (rankConstant + vectorRanks[chunkIndex]);
+        if (lexicalRanks.TryGetValue(chunkIndex, out var lexicalRank))
+        {
+            score += 0.35 / (rankConstant + lexicalRank);
+        }
+
+        return score + Math.Max(0, vectorScore) * 0.000001;
+    }
+
+    private static string[] Tokenize(string text) =>
+        Regex.Matches(text.ToLowerInvariant(), @"[\p{L}\p{N}]{2,}")
+            .Select(match => match.Value)
+            .ToArray();
 
     private static byte[] EmbeddingToBytes(float[] embedding)
     {

@@ -113,7 +113,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(ZambaAngularCorsPolicy, policy =>
     {
-        policy.WithOrigins("http://localhost:4200", "https://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "https://localhost:4200","http://localhost:4400", "https://localhost:4400","http://localhost", "https://localhost")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
