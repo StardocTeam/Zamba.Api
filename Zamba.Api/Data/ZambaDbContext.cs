@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Zamba.Api.Data;
 
@@ -14,9 +15,7 @@ public class ZambaDbContext : DbContext
     /// Initializes a new instance of the ZambaDbContext with options.
     /// </summary>
     public ZambaDbContext(DbContextOptions<ZambaDbContext> options)
-        : base(options)
-    {
-    }
+        : base(options) { }
 
     /// <summary>
     /// DbSet for Schedule Events.
@@ -50,28 +49,44 @@ public class ZambaDbContext : DbContext
     public DbSet<Models.EntityRagDocumentState> EntityRagDocumentStates { get; set; }
 
     public DbSet<Models.DashboardUser> DashboardUsers => Set<Models.DashboardUser>();
-    public DbSet<Models.DashboardResetPasswordToken> DashboardResetPasswordTokens => Set<Models.DashboardResetPasswordToken>();
-    public DbSet<Models.DashboardPendingVerificationUser> DashboardPendingVerificationUsers => Set<Models.DashboardPendingVerificationUser>();
-    public DbSet<Models.DashboardReportCategory> DashboardReportCategories => Set<Models.DashboardReportCategory>();
-    public DbSet<Models.DashboardReportDescription> DashboardReportDescriptions => Set<Models.DashboardReportDescription>();
+    public DbSet<Models.DashboardResetPasswordToken> DashboardResetPasswordTokens =>
+        Set<Models.DashboardResetPasswordToken>();
+    public DbSet<Models.DashboardPendingVerificationUser> DashboardPendingVerificationUsers =>
+        Set<Models.DashboardPendingVerificationUser>();
+    public DbSet<Models.DashboardReportCategory> DashboardReportCategories =>
+        Set<Models.DashboardReportCategory>();
+    public DbSet<Models.DashboardReportDescription> DashboardReportDescriptions =>
+        Set<Models.DashboardReportDescription>();
     public DbSet<Models.DashboardReport> DashboardReports => Set<Models.DashboardReport>();
-    public DbSet<Models.DashboardSidebarMenuItem> DashboardSidebarMenuItems => Set<Models.DashboardSidebarMenuItem>();
-    public DbSet<Models.DashboardCalendarEvent> DashboardCalendarEvents => Set<Models.DashboardCalendarEvent>();
-    public DbSet<Models.DashboardWidgetContainer> DashboardWidgetContainers => Set<Models.DashboardWidgetContainer>();
-    public DbSet<Models.DashboardCarouselContent> DashboardCarouselContents => Set<Models.DashboardCarouselContent>();
-    public DbSet<Models.DashboardCarouselConfig> DashboardCarouselConfigs => Set<Models.DashboardCarouselConfig>();
-    public DbSet<Models.DashboardVideoPlayerSource> DashboardVideoPlayerSources => Set<Models.DashboardVideoPlayerSource>();
+    public DbSet<Models.DashboardSidebarMenuItem> DashboardSidebarMenuItems =>
+        Set<Models.DashboardSidebarMenuItem>();
+    public DbSet<Models.DashboardCalendarEvent> DashboardCalendarEvents =>
+        Set<Models.DashboardCalendarEvent>();
+    public DbSet<Models.DashboardWidgetContainer> DashboardWidgetContainers =>
+        Set<Models.DashboardWidgetContainer>();
+    public DbSet<Models.DashboardCarouselContent> DashboardCarouselContents =>
+        Set<Models.DashboardCarouselContent>();
+    public DbSet<Models.DashboardCarouselConfig> DashboardCarouselConfigs =>
+        Set<Models.DashboardCarouselConfig>();
+    public DbSet<Models.DashboardVideoPlayerSource> DashboardVideoPlayerSources =>
+        Set<Models.DashboardVideoPlayerSource>();
     public DbSet<Models.DashboardRole> DashboardRoles => Set<Models.DashboardRole>();
-    public DbSet<Models.DashboardUserConfiguration> DashboardUserConfigurations => Set<Models.DashboardUserConfiguration>();
+    public DbSet<Models.DashboardUserConfiguration> DashboardUserConfigurations =>
+        Set<Models.DashboardUserConfiguration>();
     public DbSet<Models.DashboardUserRight> DashboardUserRights => Set<Models.DashboardUserRight>();
     public DbSet<Models.DashboardUserGroup> DashboardUserGroups => Set<Models.DashboardUserGroup>();
-    public DbSet<Models.DashboardGroupInheritance> DashboardGroupInheritances => Set<Models.DashboardGroupInheritance>();
+    public DbSet<Models.DashboardGroupInheritance> DashboardGroupInheritances =>
+        Set<Models.DashboardGroupInheritance>();
     public DbSet<Models.DashboardWorkflow> DashboardWorkflows => Set<Models.DashboardWorkflow>();
-    public DbSet<Models.DashboardWorkflowStep> DashboardWorkflowSteps => Set<Models.DashboardWorkflowStep>();
-    public DbSet<Models.DashboardDocumentType> DashboardDocumentTypes => Set<Models.DashboardDocumentType>();
-    public DbSet<Models.DashboardWorkflowDocument> DashboardWorkflowDocuments => Set<Models.DashboardWorkflowDocument>();
+    public DbSet<Models.DashboardWorkflowStep> DashboardWorkflowSteps =>
+        Set<Models.DashboardWorkflowStep>();
+    public DbSet<Models.DashboardDocumentType> DashboardDocumentTypes =>
+        Set<Models.DashboardDocumentType>();
+    public DbSet<Models.DashboardWorkflowDocument> DashboardWorkflowDocuments =>
+        Set<Models.DashboardWorkflowDocument>();
     public DbSet<Models.VacationDocument> VacationDocuments => Set<Models.VacationDocument>();
-    public DbSet<Models.DashboardDepartment> DashboardDepartments => Set<Models.DashboardDepartment>();
+    public DbSet<Models.DashboardDepartment> DashboardDepartments =>
+        Set<Models.DashboardDepartment>();
 
     /// <summary>
     /// Configures the model when it is first created.
@@ -79,54 +94,46 @@ public class ZambaDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-        var isOracle = string.Equals(Database.ProviderName, "Oracle.EntityFrameworkCore", StringComparison.Ordinal);
+        var isOracle = string.Equals(
+            Database.ProviderName,
+            "Oracle.EntityFrameworkCore",
+            StringComparison.Ordinal
+        );
 
         // Configure ScheduleEvent
         modelBuilder.Entity<Models.ScheduleEvent>(entity =>
         {
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.Name)
-                .IsRequired()
-                .HasMaxLength(255);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(255);
 
-            entity.Property(e => e.RuleId)
-                .IsRequired()
-                .HasMaxLength(255);
+            entity.Property(e => e.RuleId).IsRequired().HasMaxLength(255);
 
-            entity.Property(e => e.ExecutionType)
+            entity
+                .Property(e => e.ExecutionType)
                 .HasDefaultValue(Models.ScheduleExecutionType.ExecuteRule);
 
-            entity.Property(e => e.Description)
-                .HasMaxLength(1000);
+            entity.Property(e => e.Description).HasMaxLength(1000);
 
             entity.Property(e => e.ExpectedResult);
 
-            entity.Property(e => e.NotificationEmail)
-                .HasMaxLength(320);
+            entity.Property(e => e.NotificationEmail).HasMaxLength(320);
 
-            entity.Property(e => e.NotifyOnSuccess)
-                .HasDefaultValue(false);
+            entity.Property(e => e.NotifyOnSuccess).HasDefaultValue(false);
 
-            entity.Property(e => e.NotifyOnFailure)
-                .HasDefaultValue(false);
+            entity.Property(e => e.NotifyOnFailure).HasDefaultValue(false);
 
-            entity.Property(e => e.NotifySlackOnSuccess)
-                .HasDefaultValue(false);
+            entity.Property(e => e.NotifySlackOnSuccess).HasDefaultValue(false);
 
-            entity.Property(e => e.NotifySlackOnFailure)
-                .HasDefaultValue(false);
+            entity.Property(e => e.NotifySlackOnFailure).HasDefaultValue(false);
 
-            entity.Property(e => e.EndpointOverride)
-                .HasMaxLength(500);
+            entity.Property(e => e.EndpointOverride).HasMaxLength(500);
 
             entity.Property(e => e.Query);
 
-            entity.Property(e => e.EndpointUrl)
-                .HasMaxLength(2048);
+            entity.Property(e => e.EndpointUrl).HasMaxLength(2048);
 
-            entity.Property(e => e.EndpointMethod)
-                .HasMaxLength(10);
+            entity.Property(e => e.EndpointMethod).HasMaxLength(10);
 
             entity.Property(e => e.EndpointParameters);
 
@@ -134,41 +141,48 @@ public class ZambaDbContext : DbContext
 
             entity.Property(e => e.RagDocumentTypeId).HasColumnType("decimal(18,0)");
 
-            entity.Property(e => e.CreatedBy)
-                .HasMaxLength(255);
+            entity.Property(e => e.CreatedBy).HasMaxLength(255);
 
-            entity.Property(e => e.UpdatedBy)
-                .HasMaxLength(255);
+            entity.Property(e => e.UpdatedBy).HasMaxLength(255);
 
-            entity.Property(e => e.CreatedAt)
+            entity
+                .Property(e => e.CreatedAt)
                 .HasDefaultValueSql(isOracle ? "SYS_EXTRACT_UTC(SYSTIMESTAMP)" : "GETUTCDATE()");
 
-            entity.Property(e => e.UpdatedAt)
+            entity
+                .Property(e => e.UpdatedAt)
                 .HasDefaultValueSql(isOracle ? "SYS_EXTRACT_UTC(SYSTIMESTAMP)" : "GETUTCDATE()");
 
             // Indexes for common queries
             entity.HasIndex(e => e.RuleId);
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.CreatedAt);
-            var executionTypeDocumentTypeIndex = entity.HasIndex(e => new { e.ExecutionType, e.RagDocumentTypeId });
+            var executionTypeDocumentTypeIndex = entity.HasIndex(e => new
+            {
+                e.ExecutionType,
+                e.RagDocumentTypeId,
+            });
             if (isOracle)
             {
                 executionTypeDocumentTypeIndex.IsUnique();
             }
             else
             {
-                executionTypeDocumentTypeIndex.IsUnique()
+                executionTypeDocumentTypeIndex
+                    .IsUnique()
                     .HasFilter("[RagDocumentTypeId] IS NOT NULL");
             }
 
             // One-to-many relationship with ScheduleExecutionLog
-            entity.HasMany(e => e.ExecutionLogs)
+            entity
+                .HasMany(e => e.ExecutionLogs)
                 .WithOne(l => l.ScheduleEvent)
                 .HasForeignKey(l => l.ScheduleEventId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // One-to-one relationship with ScheduleConfig
-            entity.HasOne(e => e.ScheduleConfig)
+            entity
+                .HasOne(e => e.ScheduleConfig)
                 .WithOne(c => c.ScheduleEvent)
                 .HasForeignKey<Models.ScheduleConfig>(c => c.ScheduleEventId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -179,13 +193,12 @@ public class ZambaDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.CronExpression)
-                .HasMaxLength(255);
+            entity.Property(e => e.CronExpression).HasMaxLength(255);
 
-            entity.Property(e => e.DaysOfWeek)
-                .HasMaxLength(50);
+            entity.Property(e => e.DaysOfWeek).HasMaxLength(50);
 
-            entity.Property(e => e.TimeZone)
+            entity
+                .Property(e => e.TimeZone)
                 .HasMaxLength(100)
                 .HasDefaultValue("Argentina Standard Time");
 
@@ -203,23 +216,17 @@ public class ZambaDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.ResponseBody)
-                .HasMaxLength(4000); // Truncate to 4000 chars to avoid excessive storage
+            entity.Property(e => e.ResponseBody).HasMaxLength(4000); // Truncate to 4000 chars to avoid excessive storage
 
-            entity.Property(e => e.Result)
-                .HasMaxLength(20);
+            entity.Property(e => e.Result).HasMaxLength(20);
 
-            entity.Property(e => e.ErrorMessage)
-                .HasMaxLength(2000);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(2000);
 
-            entity.Property(e => e.ScheduledAt)
-                .HasPrecision(6); // Millisecond precision
+            entity.Property(e => e.ScheduledAt).HasPrecision(6); // Millisecond precision
 
-            entity.Property(e => e.StartedAt)
-                .HasPrecision(6);
+            entity.Property(e => e.StartedAt).HasPrecision(6);
 
-            entity.Property(e => e.FinishedAt)
-                .HasPrecision(6);
+            entity.Property(e => e.FinishedAt).HasPrecision(6);
 
             // Indexes for common queries
             entity.HasIndex(e => e.ScheduleEventId);
@@ -262,7 +269,8 @@ public class ZambaDbContext : DbContext
             entity.Property(step => step.Detail).HasMaxLength(4000);
             entity.Property(step => step.ErrorMessage).HasMaxLength(4000);
             entity.HasIndex(step => new { step.RunId, step.StartedAtUtc });
-            entity.HasOne(step => step.Run)
+            entity
+                .HasOne(step => step.Run)
                 .WithMany(run => run.Steps)
                 .HasForeignKey(step => step.RunId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -275,7 +283,8 @@ public class ZambaDbContext : DbContext
             entity.Property(feedback => feedback.Comment).HasMaxLength(2000);
             entity.HasIndex(feedback => new { feedback.RunId, feedback.VoterId }).IsUnique();
             entity.HasIndex(feedback => new { feedback.Rating, feedback.CreatedAtUtc });
-            entity.HasOne(feedback => feedback.Run)
+            entity
+                .HasOne(feedback => feedback.Run)
                 .WithMany(run => run.Feedback)
                 .HasForeignKey(feedback => feedback.RunId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -287,7 +296,14 @@ public class ZambaDbContext : DbContext
             entity.Property(source => source.ApplicationName).HasMaxLength(128).IsRequired();
             entity.Property(source => source.Environment).HasMaxLength(64).IsRequired();
             entity.Property(source => source.FolderPath).HasMaxLength(2048).IsRequired();
-            entity.HasIndex(source => new { source.ApplicationName, source.Environment, source.FolderPath }).IsUnique();
+            entity
+                .HasIndex(source => new
+                {
+                    source.ApplicationName,
+                    source.Environment,
+                    source.FolderPath,
+                })
+                .IsUnique();
         });
 
         modelBuilder.Entity<Models.TraceRecord>(entity =>
@@ -300,7 +316,8 @@ public class ZambaDbContext : DbContext
             entity.HasIndex(trace => new { trace.TraceSourceId, trace.RelativePath }).IsUnique();
             entity.HasIndex(trace => new { trace.TraceSourceId, trace.TraceTimestampUtc });
             entity.HasIndex(trace => trace.UserId);
-            entity.HasOne(trace => trace.TraceSource)
+            entity
+                .HasOne(trace => trace.TraceSource)
                 .WithMany(source => source.Traces)
                 .HasForeignKey(trace => trace.TraceSourceId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -323,7 +340,12 @@ public class ZambaDbContext : DbContext
             entity.Property(state => state.VectorDocumentId).HasMaxLength(64);
             entity.Property(state => state.FileName).HasMaxLength(512);
             entity.Property(state => state.LastError).HasMaxLength(4000);
-            entity.HasIndex(state => new { state.DocumentTypeId, state.Status, state.UpdatedAtUtc });
+            entity.HasIndex(state => new
+            {
+                state.DocumentTypeId,
+                state.Status,
+                state.UpdatedAtUtc,
+            });
         });
 
         DashboardModelConfiguration.Configure(modelBuilder, isOracle);
@@ -333,22 +355,37 @@ public class ZambaDbContext : DbContext
             entity.ToTable("SLST_S152", isOracle ? null : "zambabpm_RRHH");
             entity.HasKey(row => row.Id);
             entity.Property(row => row.Id).HasColumnName("Codigo").HasColumnType("numeric(18,0)");
-            entity.Property(row => row.Name).HasColumnName("Descripcion").HasMaxLength(60).IsUnicode(false);
+            entity
+                .Property(row => row.Name)
+                .HasColumnName("Descripcion")
+                .HasMaxLength(60)
+                .IsUnicode(false);
         });
 
         modelBuilder.Entity<Models.VacationDocument>(entity =>
         {
             entity.ToTable("DOC_I110", isOracle ? null : "zambabpm_RRHH");
             entity.HasKey(row => row.DocumentId);
-            entity.Property(row => row.DocumentId).HasColumnName("DOC_ID").HasColumnType("numeric(18,0)");
+            entity
+                .Property(row => row.DocumentId)
+                .HasColumnName("DOC_ID")
+                .HasColumnType("numeric(18,0)");
             entity.Property(row => row.LastUpdate).HasColumnName("lupdate");
             entity.Property(row => row.Created).HasColumnName("crdate");
             entity.Property(row => row.Date).HasColumnName("Fecha");
-            entity.Property(row => row.I110).HasColumnName("I110").HasMaxLength(30).IsUnicode(false);
+            entity
+                .Property(row => row.I110)
+                .HasColumnName("I110")
+                .HasMaxLength(30)
+                .IsUnicode(false);
             entity.Property(row => row.I166).HasColumnName("I166").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I168).HasColumnName("I168").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I169).HasColumnName("I169").HasColumnType("numeric(18,0)");
-            entity.Property(row => row.I136).HasColumnName("I136").HasMaxLength(2000).IsUnicode(false);
+            entity
+                .Property(row => row.I136)
+                .HasColumnName("I136")
+                .HasMaxLength(2000)
+                .IsUnicode(false);
             entity.Property(row => row.I189).HasColumnName("I189").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I224).HasColumnName("I224").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I192).HasColumnName("I192").HasColumnType("numeric(18,0)");
@@ -359,8 +396,16 @@ public class ZambaDbContext : DbContext
             entity.Property(row => row.I230).HasColumnName("I230");
             entity.Property(row => row.I226).HasColumnName("I226").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I164).HasColumnName("I164").HasColumnType("numeric(18,0)");
-            entity.Property(row => row.I102).HasColumnName("I102").HasMaxLength(100).IsUnicode(false);
-            entity.Property(row => row.I101).HasColumnName("I101").HasMaxLength(100).IsUnicode(false);
+            entity
+                .Property(row => row.I102)
+                .HasColumnName("I102")
+                .HasMaxLength(100)
+                .IsUnicode(false);
+            entity
+                .Property(row => row.I101)
+                .HasColumnName("I101")
+                .HasMaxLength(100)
+                .IsUnicode(false);
             entity.Property(row => row.I239).HasColumnName("I239").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I165).HasColumnName("i165").HasColumnType("numeric(7,0)");
             entity.Property(row => row.I262).HasColumnName("I262");
@@ -369,7 +414,11 @@ public class ZambaDbContext : DbContext
             entity.Property(row => row.I258).HasColumnName("i258").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I295).HasColumnName("I295").HasColumnType("numeric(18,0)");
             entity.Property(row => row.I167).HasColumnName("I167").HasColumnType("numeric(18,0)");
-            entity.Property(row => row.I170).HasColumnName("i170").HasMaxLength(100).IsUnicode(false);
+            entity
+                .Property(row => row.I170)
+                .HasColumnName("i170")
+                .HasMaxLength(100)
+                .IsUnicode(false);
             entity.Property(row => row.I290).HasColumnName("I290").HasColumnType("numeric(18,0)");
         });
 
@@ -381,6 +430,21 @@ public class ZambaDbContext : DbContext
 
     private static void ConfigureOracleIdentifiers(ModelBuilder modelBuilder)
     {
+        var migrationManagedTables = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ScheduleEvents",
+            "ScheduleConfigs",
+            "ScheduleExecutionLogs",
+            "ScheduleWorkerStatuses",
+            "CopilotRuns",
+            "CopilotRunSteps",
+            "CopilotFeedback",
+            "TraceSources",
+            "TraceRecords",
+            "EntityRagIndexingConfigs",
+            "EntityRagDocumentStates",
+        };
+
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             var tableName = entityType.GetTableName();
@@ -389,11 +453,30 @@ public class ZambaDbContext : DbContext
                 continue;
             }
 
-            entityType.SetTableName(tableName.ToUpperInvariant());
             entityType.SetSchema(null);
-            var table = StoreObjectIdentifier.Table(entityType.GetTableName()!, entityType.GetSchema());
+
+            // These tables were created by EF migrations with quoted PascalCase names.
+            // Oracle preserves the case of quoted identifiers, so normalizing them to
+            // uppercase makes runtime queries target different, nonexistent objects.
+            if (migrationManagedTables.Contains(tableName))
+            {
+                continue;
+            }
+
+            entityType.SetTableName(tableName.ToUpperInvariant());
+            var table = StoreObjectIdentifier.Table(
+                entityType.GetTableName()!,
+                entityType.GetSchema()
+            );
             foreach (var property in entityType.GetProperties())
             {
+                var propertyType = Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType;
+                if (propertyType == typeof(bool))
+                {
+                    property.SetValueConverter(new BoolToZeroOneConverter<int>());
+                    property.SetColumnType("NUMBER(1)");
+                }
+
                 var columnName = property.GetColumnName(table);
                 if (columnName is not null)
                 {

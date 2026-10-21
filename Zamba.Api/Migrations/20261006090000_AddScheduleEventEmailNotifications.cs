@@ -1,3 +1,4 @@
+using System;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Zamba.Api.Data;
@@ -12,26 +13,54 @@ namespace Zamba.Api.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            var isOracle = ActiveProvider.Contains("Oracle", StringComparison.Ordinal);
+
+            if (isOracle)
+            {
+                migrationBuilder.Sql(
+                    @"
+DECLARE
+    v_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO v_count FROM USER_TAB_COLUMNS WHERE UPPER(TABLE_NAME) = 'SCHEDULEEVENTS' AND UPPER(COLUMN_NAME) = 'NOTIFICATIONEMAIL';
+    IF v_count = 0 THEN
+        EXECUTE IMMEDIATE 'ALTER TABLE ""ScheduleEvents"" ADD ""NotificationEmail"" NVARCHAR2(320)';
+    END IF;
+
+    SELECT COUNT(*) INTO v_count FROM USER_TAB_COLUMNS WHERE UPPER(TABLE_NAME) = 'SCHEDULEEVENTS' AND UPPER(COLUMN_NAME) = 'NOTIFYONFAILURE';
+    IF v_count = 0 THEN
+        EXECUTE IMMEDIATE 'ALTER TABLE ""ScheduleEvents"" ADD ""NotifyOnFailure"" NUMBER(1) DEFAULT 0 NOT NULL';
+    END IF;
+
+    SELECT COUNT(*) INTO v_count FROM USER_TAB_COLUMNS WHERE UPPER(TABLE_NAME) = 'SCHEDULEEVENTS' AND UPPER(COLUMN_NAME) = 'NOTIFYONSUCCESS';
+    IF v_count = 0 THEN
+        EXECUTE IMMEDIATE 'ALTER TABLE ""ScheduleEvents"" ADD ""NotifyOnSuccess"" NUMBER(1) DEFAULT 0 NOT NULL';
+    END IF;
+END;"
+                );
+                return;
+            }
+
             migrationBuilder.AddColumn<string>(
                 name: "NotificationEmail",
                 table: "ScheduleEvents",
-                type: "nvarchar(320)",
                 maxLength: 320,
-                nullable: true);
+                nullable: true
+            );
 
             migrationBuilder.AddColumn<bool>(
                 name: "NotifyOnFailure",
                 table: "ScheduleEvents",
-                type: "bit",
                 nullable: false,
-                defaultValue: false);
+                defaultValue: false
+            );
 
             migrationBuilder.AddColumn<bool>(
                 name: "NotifyOnSuccess",
                 table: "ScheduleEvents",
-                type: "bit",
                 nullable: false,
-                defaultValue: false);
+                defaultValue: false
+            );
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
